@@ -4,10 +4,11 @@ description: >
   Scaffold a complete production-ready project foundation from scratch. Use this skill
   at the very start of any new project — before writing any business logic. Run when the
   user says /new-project, "start a new project", "scaffold a new app", "set up a new
-  project", or "create a new app". Asks 3 questions then creates ~25 files covering LLM
+  project", or "create a new app". Asks 3 questions then creates ~35 files covering LLM
   abstraction, auth, security, CI/CD, frontend components, MCP servers, and CLAUDE.md.
-  Works for SaaS, AI apps, internal tools, and APIs. Never run on an existing project
-  with code already in it.
+  Uses industry-standard sub-package structure (app/providers/, app/auth/, app/infra/)
+  from day one — never a flat app/core/ dump. Works for SaaS, AI apps, internal tools,
+  and APIs. Never run on an existing project with code already in it.
 ---
 
 # New Project Scaffold
@@ -44,8 +45,41 @@ Wait for answers before proceeding.
 
 Create all files in parallel. Use the app name provided. Adapt based on app type:
 - Skip frontend files if "API only"
-- Add Qdrant + AI files if "AI + SaaS"
+- Add Qdrant + AI files and `app/schemas/` if "AI + SaaS"
 - Add billing file if billing = yes
+- Add `deploy/modal.py` if "AI + SaaS"
+
+### DIRECTORY STRUCTURE TO CREATE
+
+```
+<app-name>/
+├── app/
+│   ├── api/              ← routes only, no business logic
+│   ├── auth/             ← JWT, RBAC, FastAPI dependencies
+│   ├── providers/        ← LLM, embedding (pluggable backends)
+│   ├── infra/            ← circuit breaker, rate limiter, cost tracker
+│   ├── db/               ← schema, migrations
+│   ├── jobs/             ← scheduled work
+│   ├── schemas/          ← Pydantic output models (AI + SaaS only)
+│   └── main.py
+├── deploy/               ← Modal, Dockerfile variants (AI + SaaS only)
+├── tests/
+│   ├── unit/
+│   ├── integration/
+│   └── fixtures/
+├── scripts/              ← ops only: seed, reset (never test code)
+├── .mcp/                 ← MCP servers for Claude Code
+├── .github/workflows/
+├── Makefile              ← single dev entrypoint
+├── pyproject.toml        ← ruff + pytest config
+├── .pre-commit-config.yaml
+├── .env.example
+├── docker-compose.yml
+├── Dockerfile
+└── CLAUDE.md
+```
+
+---
 
 ### `app/__init__.py`
 Empty file.
@@ -139,23 +173,22 @@ Empty file.
 ### `app/api/routes.py`
 ```python
 from fastapi import APIRouter
-from app.api.auth import router as auth_router
+from app.api.auth_routes import router as auth_router
 
 router = APIRouter()
 router.include_router(auth_router, prefix="/auth", tags=["auth"])
 ```
 
-### `app/api/auth.py`
+### `app/api/auth_routes.py`
+Routes only — all JWT logic lives in `app/auth/jwt.py`.
 ```python
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from datetime import datetime, timedelta
-import jwt
-from app.config import settings
+from app.auth.jwt import create_token, verify_token
+from app.auth.dependencies import get_current_user
+from fastapi import Depends
 
 router = APIRouter()
-security = HTTPBearer()
 
 class LoginRequest(BaseModel):
     email: str
@@ -165,18 +198,6 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
 
-def create_token(payload: dict, expires_minutes: int = 60) -> str:
-    payload["exp"] = datetime.utcnow() + timedelta(minutes=expires_minutes)
-    return jwt.encode(payload, settings.secret_key, algorithm="HS256")
-
-def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    try:
-        return jwt.decode(credentials.credentials, settings.secret_key, algorithms=["HS256"])
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
-    except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
 @router.post("/login", response_model=TokenResponse)
 async def login(request: LoginRequest):
     # TODO: verify against database
@@ -184,22 +205,103 @@ async def login(request: LoginRequest):
     return TokenResponse(access_token=token)
 
 @router.get("/me")
-async def me(payload: dict = Depends(verify_token)):
+async def me(payload: dict = Depends(get_current_user)):
     return payload
 ```
 
-### `app/core/__init__.py`
+---
+
+### `app/auth/__init__.py`
 Empty file.
 
-### `app/core/llm_provider.py`
+### `app/auth/jwt.py`
+All JWT logic — token creation, verification, role checks.
 ```python
-"""
-LLM abstraction — swap providers via LLM_PROVIDER in .env.
-Agents call call_llm() — never import provider SDKs directly in agent files.
+from datetime import datetime, timedelta
+from fastapi import HTTPException
+import jwt
+from app.config import settings
 
-Providers: openai | anthropic | openrouter | ollama | azure | modal
-"""
-import time
+def create_token(payload: dict, expires_minutes: int = 60) -> str:
+    data = payload.copy()
+    data["exp"] = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    return jwt.encode(data, settings.secret_key, algorithm="HS256")
+
+def decode_token(token: str) -> dict:
+    try:
+        return jwt.decode(token, settings.secret_key, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
+
+def require_role(*roles: str):
+    """FastAPI dependency — raises 403 if user role not in allowed list."""
+    def checker(payload: dict) -> dict:
+        if payload.get("role") not in roles:
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+        return payload
+    return checker
+```
+
+### `app/auth/rbac.py`
+Resource-level access checks beyond role.
+```python
+from fastapi import HTTPException
+
+ROLE_PERMISSIONS: dict[str, list[str]] = {
+    "owner":  ["read", "write", "delete", "admin"],
+    "admin":  ["read", "write", "delete"],
+    "member": ["read", "write"],
+    "viewer": ["read"],
+}
+
+def has_permission(role: str, action: str) -> bool:
+    return action in ROLE_PERMISSIONS.get(role, [])
+
+def require_permission(action: str):
+    """FastAPI dependency — raises 403 if role lacks the action."""
+    def checker(payload: dict) -> dict:
+        role = payload.get("role", "viewer")
+        if not has_permission(role, action):
+            raise HTTPException(status_code=403, detail=f"Role '{role}' cannot '{action}'")
+        return payload
+    return checker
+```
+
+### `app/auth/dependencies.py`
+FastAPI `Depends()` resolvers — imported by all routes.
+```python
+from fastapi import Depends, HTTPException
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from app.auth.jwt import decode_token
+
+security = HTTPBearer()
+
+def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    return decode_token(credentials.credentials)
+
+def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials = Depends(HTTPBearer(auto_error=False)),
+) -> dict | None:
+    if credentials is None:
+        return None
+    return decode_token(credentials.credentials)
+```
+
+---
+
+### `app/providers/__init__.py`
+Empty file.
+
+### `app/providers/llm.py`
+LLM abstraction — swap providers via `LLM_PROVIDER` in `.env`.
+Agents call `call_llm()` — never import provider SDKs directly in agent files.
+
+Providers: `openai | anthropic | openrouter | ollama | azure | modal`
+```python
 from app.config import settings
 
 async def call_llm(
@@ -287,7 +389,51 @@ async def _call_modal(system_prompt, user_message, max_tokens) -> str:
     return response.choices[0].message.content
 ```
 
-### `app/core/circuit_breaker.py`
+### `app/providers/embedding.py`
+Embedding abstraction — swap via `EMBEDDING_PROVIDER` in `.env`.
+```python
+from app.config import settings
+
+def embed_text(text: str) -> list[float]:
+    return embed_batch([text])[0]
+
+def embed_batch(texts: list[str]) -> list[list[float]]:
+    provider = settings.embedding_provider.lower()
+    if provider in ("openai", "azure"):
+        return _embed_openai(texts)
+    elif provider == "local":
+        return _embed_local(texts)
+    elif provider == "modal":
+        return _embed_modal(texts)
+    else:
+        raise ValueError(f"Unknown EMBEDDING_PROVIDER: '{provider}'")
+
+def get_embedding_dimensions() -> int:
+    return 3072 if settings.embedding_provider.lower() in ("openai", "azure") else 1024
+
+def _embed_openai(texts: list[str]) -> list[list[float]]:
+    from openai import OpenAI
+    client = OpenAI(api_key=settings.openai_api_key)
+    response = client.embeddings.create(model=settings.openai_embedding_model, input=texts)
+    return [d.embedding for d in response.data]
+
+def _embed_local(texts: list[str]) -> list[list[float]]:
+    from sentence_transformers import SentenceTransformer
+    model = SentenceTransformer(settings.embedding_model_local)
+    return model.encode(texts).tolist()
+
+def _embed_modal(texts: list[str]) -> list[list[float]]:
+    import httpx
+    response = httpx.post(f"{settings.modal_llm_url}/embed", json={"texts": texts}, timeout=60)
+    return response.json()["embeddings"]
+```
+
+---
+
+### `app/infra/__init__.py`
+Empty file.
+
+### `app/infra/circuit_breaker.py`
 ```python
 import time
 from enum import Enum
@@ -329,18 +475,19 @@ class CircuitBreaker:
             raise
 ```
 
-### `app/core/rate_limiter.py`
+### `app/infra/rate_limiter.py`
 ```python
 """Per-org rate limiting — each org gets its own token bucket."""
 import time
 from collections import defaultdict
 from threading import Lock
-from app.config import settings
 
 class OrgRateLimiter:
     def __init__(self, requests_per_minute: int = 60):
         self.rpm = requests_per_minute
-        self._buckets: dict[str, dict] = defaultdict(lambda: {"tokens": requests_per_minute, "last_refill": time.time()})
+        self._buckets: dict[str, dict] = defaultdict(
+            lambda: {"tokens": requests_per_minute, "last_refill": time.time()}
+        )
         self._lock = Lock()
 
     def allow(self, org_id: str) -> bool:
@@ -358,7 +505,7 @@ class OrgRateLimiter:
 rate_limiter = OrgRateLimiter()
 ```
 
-### `app/core/cost_tracker.py`
+### `app/infra/cost_tracker.py`
 ```python
 """Track LLM cost and latency per agent per run."""
 from dataclasses import dataclass, field
@@ -401,45 +548,7 @@ def get_run(run_id: str) -> RunCost | None:
     return _runs.get(run_id)
 ```
 
-### `app/core/embedding_provider.py`
-```python
-"""Embedding abstraction — swap via EMBEDDING_PROVIDER in .env."""
-from app.config import settings
-
-def embed_text(text: str) -> list[float]:
-    return embed_batch([text])[0]
-
-def embed_batch(texts: list[str]) -> list[list[float]]:
-    provider = settings.embedding_provider.lower()
-    if provider in ("openai", "azure"):
-        return _embed_openai(texts)
-    elif provider == "local":
-        return _embed_local(texts)
-    elif provider == "modal":
-        return _embed_modal(texts)
-    else:
-        raise ValueError(f"Unknown EMBEDDING_PROVIDER: '{provider}'")
-
-def get_embedding_dimensions() -> int:
-    provider = settings.embedding_provider.lower()
-    return 3072 if provider in ("openai", "azure") else 1024
-
-def _embed_openai(texts: list[str]) -> list[list[float]]:
-    from openai import OpenAI
-    client = OpenAI(api_key=settings.openai_api_key)
-    response = client.embeddings.create(model=settings.openai_embedding_model, input=texts)
-    return [d.embedding for d in response.data]
-
-def _embed_local(texts: list[str]) -> list[list[float]]:
-    from sentence_transformers import SentenceTransformer
-    model = SentenceTransformer(settings.embedding_model_local)
-    return model.encode(texts).tolist()
-
-def _embed_modal(texts: list[str]) -> list[list[float]]:
-    import httpx
-    response = httpx.post(f"{settings.modal_llm_url}/embed", json={"texts": texts}, timeout=60)
-    return response.json()["embeddings"]
-```
+---
 
 ### `app/db/__init__.py`
 Empty file.
@@ -490,7 +599,6 @@ import logging
 from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
-
 RETENTION_DAYS = 90
 
 def cleanup_old_records():
@@ -501,6 +609,110 @@ def cleanup_old_records():
 if __name__ == "__main__":
     cleanup_old_records()
 ```
+
+---
+
+### `tests/unit/.gitkeep`
+Empty file — keeps the directory tracked by git.
+
+### `tests/integration/.gitkeep`
+Empty file.
+
+### `tests/fixtures/.gitkeep`
+Empty file.
+
+### `scripts/seed.py`
+```python
+"""Seed initial data — run once after migrations."""
+# TODO: insert default org, admin user, and baseline config
+if __name__ == "__main__":
+    print("Seeding database...")
+```
+
+---
+
+### `Makefile`
+Single entrypoint for all dev tasks — `make dev` gets a new engineer running in under 5 minutes.
+```makefile
+.PHONY: dev test lint seed reset check
+
+dev:
+	cp -n .env.example .env 2>/dev/null || true
+	docker-compose up -d
+	pip install -r requirements.txt
+	alembic upgrade head
+	python scripts/seed.py
+	uvicorn app.main:app --reload --port 8000
+
+frontend:
+	cd frontend && npm install && npm run dev
+
+test:
+	pytest tests/unit tests/integration -v --tb=short
+
+lint:
+	ruff check app/ tests/ --fix
+	ruff format app/ tests/
+	cd frontend && npx eslint . 2>/dev/null || true
+
+seed:
+	python scripts/seed.py
+
+reset:
+	python scripts/reset.py
+
+check:
+	pytest tests/unit -q
+	python -c "from app.main import app; print('imports ok')"
+```
+
+### `pyproject.toml`
+```toml
+[project]
+name = "app"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["app"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+```
+
+### `.pre-commit-config.yaml`
+```yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.75.0
+    hooks:
+      - id: trufflehog
+        name: Secret scan
+        entry: trufflehog git file://. --since-commit HEAD --only-verified --fail
+        language: system
+        pass_filenames: false
+```
+
+---
 
 ### `Dockerfile`
 ```dockerfile
@@ -575,24 +787,27 @@ on:
 
 jobs:
   backend:
-    name: Backend — pytest
+    name: Backend — lint + test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt ruff
+      - name: Lint
+        run: ruff check app/ tests/
       - name: Create test .env
         run: |
           cat > .env << 'EOF'
-          SECRET_KEY=ci-test-secret
+          SECRET_KEY=ci-test-secret-32-chars-minimum-x
           DATABASE_URL=postgresql://user:pass@localhost/db
           LLM_PROVIDER=openai
           OPENAI_API_KEY=sk-fake
           EMBEDDING_PROVIDER=local
           EOF
-      - run: pytest tests/ -v --tb=short
+      - name: Test
+        run: pytest tests/unit -v --tb=short
 
   frontend:
     name: Frontend — build + lint
@@ -672,7 +887,10 @@ anthropic==0.49.0
 sentence-transformers==4.1.0
 pytest==8.3.5
 pytest-asyncio==0.25.0
+ruff==0.4.4
 ```
+
+---
 
 ### `frontend/components/ErrorBoundary.tsx`
 ```tsx
@@ -774,6 +992,8 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 ```
 
+---
+
 ### `.mcp/database-server.py`
 ```python
 """
@@ -839,46 +1059,11 @@ if __name__ == "__main__":
     mcp.run()
 ```
 
-### `CLAUDE.md`
-Generate a CLAUDE.md using this template, filling in the app name:
-
-```markdown
-# CLAUDE.md — [APP NAME]
-
-## THIS PROJECT
-**Product:** [APP NAME]
-**Stack:** Next.js + FastAPI + PostgreSQL + Redis
-**LLM:** Configurable via LLM_PROVIDER in .env
-
-## SESSION START — MANDATORY
-```bash
-docker-compose ps           # confirm services running
-python -m pytest tests/ -q  # confirm tests passing
-```
-
-## SCOPE RULES
-**Allowed:** Build features, fix bugs, write tests
-**Ask first:** Installing new packages, changing DB schema, modifying auth
-
-## COMPONENT CONTRACTS
-1. CORS is locked to ALLOWED_ORIGINS env var — never set to "*"
-2. Rate limiting is per-org — never a global singleton
-3. All secrets from env vars — no hardcoded values
-4. SQL queries parameterized — never f-string SQL
-5. Frontend: CSS vars only — never raw hex colours
-
-## STACK DETAILS
-- Backend: `uvicorn app.main:app --reload` → http://localhost:8000
-- Frontend: `cd frontend && npm run dev` → http://localhost:3000
-- DB: PostgreSQL via SQLAlchemy — migrations via Alembic
-- Auth: JWT tokens, verify with `app/api/auth.py:verify_token`
-```
-
 ---
 
 ### ALSO CREATE IF BILLING=YES
 
-### `app/api/billing.py`
+### `app/api/billing_routes.py`
 ```python
 from fastapi import APIRouter, Request, HTTPException
 from app.config import settings
@@ -908,6 +1093,112 @@ async def stripe_webhook(request: Request):
 
 ---
 
+### ALSO CREATE IF AI + SaaS
+
+### `app/schemas/__init__.py`
+Empty file.
+
+### `app/schemas/output_models.py`
+Base Pydantic output models — all agent outputs extend these.
+```python
+from pydantic import BaseModel, Field
+from enum import Enum
+
+class ConfidenceLevel(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+class AgentOutput(BaseModel):
+    """Base class for all agent outputs. Never pass raw text between agents."""
+    agent_name: str
+    confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
+    warnings: list[str] = Field(default_factory=list)
+
+class GroundedFact(BaseModel):
+    """A fact with a verbatim quote from the source document."""
+    value: str
+    grounding_quote: str  # must appear verbatim in source — never paraphrased
+    source_chunk_id: str | None = None
+    confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
+```
+
+### `deploy/modal.py`
+```python
+"""
+Modal deployment — GPU inference, batch embeddings, scheduled jobs.
+Deploy: modal deploy deploy/modal.py
+"""
+import modal
+
+app = modal.App("app-name")
+image = modal.Image.debian_slim().pip_install_from_requirements("requirements.txt")
+
+@app.function(image=image, schedule=modal.Cron("0 2 * * *"))
+def daily_cleanup():
+    from app.jobs.cleanup import cleanup_old_records
+    cleanup_old_records()
+```
+
+---
+
+### `CLAUDE.md`
+Generate a CLAUDE.md using this template, filling in the app name:
+
+```markdown
+# CLAUDE.md — [APP NAME]
+
+## THIS PROJECT
+**Product:** [APP NAME]
+**Stack:** Next.js + FastAPI + PostgreSQL + Redis
+**LLM:** Configurable via LLM_PROVIDER in .env (openai | anthropic | openrouter | ollama | azure | modal)
+
+## SESSION START — MANDATORY
+```bash
+make check    # confirm imports ok + unit tests passing
+docker-compose ps  # confirm services running
+```
+
+## DEV
+```bash
+make dev      # starts backend on :8000 (runs docker, migrations, seed)
+make frontend # starts Next.js on :3000
+make test     # unit + integration tests
+make lint     # ruff + eslint
+```
+
+## PACKAGE STRUCTURE — NEVER FLATTEN INTO core/
+```
+app/
+├── api/         ← routes only. Import from auth/, providers/, infra/
+├── auth/        ← jwt.py, rbac.py, dependencies.py
+├── providers/   ← llm.py, embedding.py  — swap via .env, never hardcode
+├── infra/       ← circuit_breaker.py, rate_limiter.py, cost_tracker.py
+├── schemas/     ← Pydantic output models (AI apps)
+├── db/          ← schema, fact_store
+└── jobs/        ← scheduled work
+```
+
+## IMPORT RULES
+- Routes import from `app.auth.*`, `app.providers.*`, `app.infra.*`
+- Agents call `call_llm()` from `app.providers.llm` — never import openai/anthropic directly
+- Never create `app/core/` — it becomes a dumping ground
+
+## COMPONENT CONTRACTS
+1. CORS locked to ALLOWED_ORIGINS env var — never "*"
+2. Rate limiting is per-org — never a global singleton
+3. All secrets from env vars — no hardcoded values in any file
+4. SQL queries parameterized — never f-string SQL
+5. Frontend: CSS vars only — never raw hex colours
+6. Agent outputs are Pydantic models — never raw text between agents
+
+## SCOPE RULES
+**Allowed:** Build features, fix bugs, write tests
+**Ask first:** Installing new packages, changing DB schema, modifying auth
+```
+
+---
+
 ## STEP 3 — PRINT SUMMARY
 
 After all files are created:
@@ -918,16 +1209,22 @@ After all files are created:
 ════════════════════════════════════════════
 
 Files created: [N]
-Stack: Next.js + FastAPI + PostgreSQL
+Stack: Next.js + FastAPI + PostgreSQL + Redis
 
-── To start ────────────────────────────────
-  cp .env.example .env          # fill in your values
-  docker-compose up -d          # start DB + Redis
-  pip install -r requirements.txt
-  uvicorn app.main:app --reload  # start backend → :8000
+── Start in one command ────────────────────
+  cp .env.example .env   # fill in your values
+  make dev               # docker + migrations + seed + backend :8000
+  make frontend          # Next.js :3000 (separate terminal)
 
-  cd frontend && npm install
-  npm run dev                    # start frontend → :3000
+── Package structure ───────────────────────
+  app/auth/       JWT, RBAC, FastAPI Depends()
+  app/providers/  LLM + embeddings (swap via .env)
+  app/infra/      circuit breaker, rate limiter, cost tracker
+  app/schemas/    Pydantic output models      [AI apps only]
+  deploy/         Modal GPU deployment        [AI apps only]
+  tests/unit/     fast, no I/O
+  tests/integration/  needs DB + services
+  scripts/        ops only (seed, reset) — never test code here
 
 ── MCP servers ─────────────────────────────
   Set DATABASE_URL in .env, then:
@@ -935,17 +1232,22 @@ Stack: Next.js + FastAPI + PostgreSQL
   python .mcp/api-server.py       # Claude Code can call your API
 
 ── What's ready ────────────────────────────
-  ✅ LLM abstraction (6 providers + streaming + prompt caching)
-  ✅ JWT auth with RBAC
-  ✅ Per-org rate limiting
+  ✅ LLM abstraction (6 providers, prompt caching on Anthropic)
+  ✅ JWT auth — create_token, decode_token, require_role
+  ✅ RBAC — owner/admin/member/viewer permission matrix
+  ✅ Per-org rate limiting (token bucket)
   ✅ Circuit breaker
-  ✅ Cost + latency tracking
-  ✅ CORS locked to env var
-  ✅ Dockerfile + docker-compose
-  ✅ GitHub Actions CI
+  ✅ Cost + latency tracking per agent
+  ✅ CORS locked to ALLOWED_ORIGINS env var
+  ✅ Dockerfile + docker-compose (Postgres + Redis)
+  ✅ GitHub Actions CI (ruff lint + pytest + frontend build)
+  ✅ Makefile — make dev / test / lint / seed
+  ✅ pyproject.toml — ruff + pytest config
+  ✅ .pre-commit-config.yaml — ruff + secret scanner
+  ✅ tests/unit/, tests/integration/, tests/fixtures/ — structured from day one
   ✅ Frontend: ErrorBoundary, EmptyState, SkeletonLoader, AuthGuard
   ✅ MCP servers for DB + API
-  ✅ CLAUDE.md with project rules
+  ✅ CLAUDE.md with import rules + package structure
 
 ── Next steps ──────────────────────────────
   1. Fill in .env values
