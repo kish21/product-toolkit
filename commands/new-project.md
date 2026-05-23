@@ -4,11 +4,11 @@ description: >
   Scaffold a complete production-ready project foundation from scratch. Use this skill
   at the very start of any new project — before writing any business logic. Run when the
   user says /new-project, "start a new project", "scaffold a new app", "set up a new
-  project", or "create a new app". Asks 3 questions then creates ~35 files covering LLM
+  project", or "create a new app". Asks 3–5 questions then creates files covering LLM
   abstraction, auth, security, CI/CD, frontend components, MCP servers, and CLAUDE.md.
-  Uses industry-standard sub-package structure (app/providers/, app/auth/, app/infra/)
-  from day one — never a flat app/core/ dump. Works for SaaS, AI apps, internal tools,
-  and APIs. Never run on an existing project with code already in it.
+  Supports: full-stack (Next.js + FastAPI), backend only (FastAPI), frontend only
+  (Next.js App Router or React + Vite). Uses industry-standard sub-package structure
+  from day one. Never run on an existing project with code already in it.
 ---
 
 # New Project Scaffold
@@ -39,6 +39,23 @@ Before I scaffold, I need 3 answers:
 
 Wait for answers before proceeding.
 
+After receiving answers to questions 1–3, ask:
+
+```
+4. What do you want to scaffold?
+   a) Full stack — Next.js frontend + FastAPI backend (default)
+   b) Backend only — FastAPI + Python, no frontend files
+   c) Frontend only — no backend at all
+
+   → If answer is (c), ask one more question:
+
+   4b. Which frontend framework?
+       a) Next.js — App Router, React 19, TypeScript, Tailwind CSS
+       b) React + Vite — SPA, TypeScript, Tailwind CSS, React Router v6
+```
+
+Wait for all answers before proceeding.
+
 ---
 
 ## STEP 2 — SCAFFOLD FILES
@@ -48,6 +65,10 @@ Create all files in parallel. Use the app name provided. Adapt based on app type
 - Add Qdrant + AI files and `app/schemas/` if "AI + SaaS"
 - Add billing file if billing = yes
 - Add `deploy/modal.py` if "AI + SaaS"
+- If "Backend only": skip all frontend files (ErrorBoundary, EmptyState, SkeletonLoader, AuthGuard, Makefile `frontend` target, CI `frontend` job)
+- If "Frontend only → Next.js": skip ALL backend files — follow the FRONTEND ONLY — NEXT.JS section below instead
+- If "Frontend only → React + Vite": skip ALL backend files — follow the FRONTEND ONLY — REACT + VITE section below instead
+- If "Full stack": existing behaviour — create everything as documented above
 
 ### DIRECTORY STRUCTURE TO CREATE
 
@@ -1142,6 +1163,897 @@ def daily_cleanup():
 
 ---
 
+### FRONTEND ONLY — NEXT.JS
+
+Only create these files when user chose "Frontend only → Next.js". Skip all Python/backend files entirely.
+
+#### Directory structure
+
+```
+<app-name>/
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx
+│   ├── globals.css
+│   ├── (auth)/
+│   │   ├── login/page.tsx
+│   │   └── signup/page.tsx
+│   └── dashboard/page.tsx
+├── components/
+│   ├── ui/
+│   │   ├── Button.tsx
+│   │   ├── Input.tsx
+│   │   └── index.ts
+│   ├── layout/
+│   │   └── Header.tsx
+│   └── features/          ← empty, fill with page-specific components
+├── lib/
+│   ├── api.ts
+│   ├── hooks.ts
+│   └── utils.ts
+├── types/
+│   └── index.ts
+├── public/
+├── next.config.ts
+├── tsconfig.json
+├── tailwind.config.ts
+├── postcss.config.mjs
+├── package.json
+├── .env.example
+├── .gitignore
+├── .github/workflows/ci.yml
+└── CLAUDE.md
+```
+
+#### `package.json`
+```json
+{
+  "name": "<app-name>",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5",
+    "tailwindcss": "^4",
+    "@tailwindcss/postcss": "^4",
+    "eslint": "^9",
+    "eslint-config-next": "^15"
+  }
+}
+```
+
+#### `next.config.ts`
+```ts
+import type { NextConfig } from "next";
+const nextConfig: NextConfig = { reactStrictMode: true };
+export default nextConfig;
+```
+
+#### `tsconfig.json`
+```json
+{
+  "compilerOptions": {
+    "target": "ES2017",
+    "lib": ["dom", "dom.iterable", "esnext"],
+    "allowJs": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "jsx": "preserve",
+    "incremental": true,
+    "plugins": [{ "name": "next" }],
+    "paths": { "@/*": ["./*"] }
+  },
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules"]
+}
+```
+
+#### `tailwind.config.ts`
+```ts
+import type { Config } from "tailwindcss";
+const config: Config = {
+  content: ["./pages/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./app/**/*.{ts,tsx}"],
+  theme: { extend: {} },
+  plugins: [],
+};
+export default config;
+```
+
+#### `postcss.config.mjs`
+```js
+const config = { plugins: { "@tailwindcss/postcss": {} } };
+export default config;
+```
+
+#### `app/layout.tsx`
+```tsx
+import type { Metadata } from "next";
+import "./globals.css";
+
+export const metadata: Metadata = {
+  title: "<APP NAME>",
+  description: "<APP NAME> — built with Next.js",
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>{children}</body>
+    </html>
+  );
+}
+```
+
+#### `app/page.tsx`
+```tsx
+export default function HomePage() {
+  return (
+    <main>
+      <h1>Welcome to &lt;APP NAME&gt;</h1>
+    </main>
+  );
+}
+```
+
+#### `app/globals.css`
+```css
+@import "tailwindcss";
+
+:root {
+  --color-background: #ffffff;
+  --color-surface: #f9fafb;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-accent: #2563eb;
+  --color-border: #e5e7eb;
+  --radius: 6px;
+}
+```
+
+#### `app/(auth)/login/page.tsx`
+```tsx
+"use client";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export default function LoginPage() {
+  const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    // TODO: call POST /auth/login, store token
+    router.push("/dashboard");
+  }
+
+  return (
+    <main style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12, width: 320 }}>
+        <h1 style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.02em" }}>Sign in</h1>
+        <label htmlFor="email" style={{ fontSize: 13, fontWeight: 500 }}>Email</label>
+        <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required
+          style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }} />
+        <label htmlFor="password" style={{ fontSize: 13, fontWeight: 500 }}>Password</label>
+        <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required
+          style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }} />
+        <button type="submit" style={{ padding: "10px", backgroundColor: "var(--color-accent)", color: "#fff", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: "pointer" }}>
+          Sign in
+        </button>
+      </form>
+    </main>
+  );
+}
+```
+
+#### `app/dashboard/page.tsx`
+```tsx
+export default function DashboardPage() {
+  return (
+    <main style={{ padding: "2rem" }}>
+      <h1>Dashboard</h1>
+      <p>Your content goes here.</p>
+    </main>
+  );
+}
+```
+
+#### `components/ui/Button.tsx`
+```tsx
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: "primary" | "secondary" | "ghost";
+  size?: "sm" | "md" | "lg";
+}
+export function Button({ variant = "primary", size = "md", children, ...props }: ButtonProps) {
+  const pad = { sm: "8px 12px", md: "10px 18px", lg: "12px 24px" }[size];
+  return (
+    <button {...props} style={{
+      padding: pad,
+      backgroundColor: variant === "primary" ? "var(--color-accent)" : "transparent",
+      color: variant === "primary" ? "#fff" : "var(--color-text-primary)",
+      border: variant === "secondary" ? "1px solid var(--color-border)" : "none",
+      borderRadius: "var(--radius)", cursor: "pointer", fontWeight: 500, ...props.style,
+    }}>{children}</button>
+  );
+}
+```
+
+#### `components/ui/Input.tsx`
+```tsx
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> { label?: string; }
+export function Input({ label, id, ...props }: InputProps) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label htmlFor={id} style={{ fontSize: 13, fontWeight: 500 }}>{label}</label>}
+      <input id={id} {...props} style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", fontSize: 14, ...props.style }} />
+    </div>
+  );
+}
+```
+
+#### `components/ui/index.ts`
+```ts
+export { Button } from "./Button";
+export { Input } from "./Input";
+```
+
+#### `components/layout/Header.tsx`
+```tsx
+import Link from "next/link";
+export function Header() {
+  return (
+    <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", height: 56, borderBottom: "1px solid var(--color-border)" }}>
+      <Link href="/" style={{ fontWeight: 700, textDecoration: "none", color: "var(--color-text-primary)" }}>&lt;APP NAME&gt;</Link>
+      <nav style={{ display: "flex", gap: 16 }}>
+        <Link href="/dashboard" style={{ fontSize: 14, color: "var(--color-text-secondary)", textDecoration: "none" }}>Dashboard</Link>
+      </nav>
+    </header>
+  );
+}
+```
+
+#### `lib/api.ts`
+```ts
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("access_token");
+}
+
+interface FetchOptions extends RequestInit { on401?: () => void; }
+
+async function request<T>(path: string, options: FetchOptions = {}): Promise<T> {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
+  });
+  if (res.status === 401) { options.on401?.(); throw new Error("Unauthorized"); }
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export const api = {
+  get: <T>(path: string, opts?: FetchOptions) => request<T>(path, { method: "GET", ...opts }),
+  post: <T>(path: string, body?: unknown, opts?: FetchOptions) =>
+    request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined, ...opts }),
+  delete: <T>(path: string, opts?: FetchOptions) => request<T>(path, { method: "DELETE", ...opts }),
+};
+```
+
+#### `lib/hooks.ts`
+```ts
+"use client";
+import { useEffect, useState } from "react";
+
+export function useAuth() {
+  const [token, setToken] = useState<string | null>(null);
+  useEffect(() => { setToken(localStorage.getItem("access_token")); }, []);
+  return { token, isLoggedIn: !!token, signOut: () => { localStorage.removeItem("access_token"); setToken(null); } };
+}
+
+type Breakpoint = "mobile" | "tablet" | "desktop";
+export function useBreakpoint(): Breakpoint {
+  const [bp, setBp] = useState<Breakpoint>("desktop");
+  useEffect(() => {
+    const update = () => setBp(window.innerWidth < 640 ? "mobile" : window.innerWidth < 1024 ? "tablet" : "desktop");
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return bp;
+}
+```
+
+#### `lib/utils.ts`
+```ts
+export const cn = (...c: (string | undefined | false | null)[]): string => c.filter(Boolean).join(" ");
+export const formatDate = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+```
+
+#### `types/index.ts`
+```ts
+export interface User { id: string; email: string; role: string; org_id: string; }
+export interface ApiError { detail: string; status: number; }
+```
+
+#### `.env.example`
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+#### `.gitignore`
+```
+node_modules/
+.next/
+out/
+.env.local
+.env*.local
+```
+
+#### `.github/workflows/ci.yml`
+```yaml
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+jobs:
+  frontend:
+    name: Frontend — type-check + build + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run build
+      - run: npm run lint
+```
+
+#### `CLAUDE.md` (Next.js variant)
+```markdown
+# CLAUDE.md — <APP NAME>
+
+## THIS PROJECT
+**Stack:** Next.js 15, React 19, TypeScript, Tailwind CSS v4
+**API:** NEXT_PUBLIC_API_URL in .env
+
+## DEV
+```bash
+npm install && npm run dev   # http://localhost:3000
+npm run type-check           # TypeScript without building
+```
+
+## COMPONENT STRUCTURE
+```
+components/ui/       ← primitives — Button, Input, no business logic
+components/layout/   ← Header, Footer, Sidebar — app shell
+components/features/ ← page-specific business components
+lib/api.ts           ← all fetch calls go through api.get / api.post
+lib/hooks.ts         ← useAuth, useBreakpoint
+lib/utils.ts         ← cn(), formatDate()
+```
+
+## RULES
+- CSS custom properties only — never raw hex in components
+- All API calls use lib/api.ts — never raw fetch() in components
+- components/ui/ are pure primitives — no API calls, no router, no auth
+- Every input must have a label with htmlFor
+```
+```
+
+---
+
+### FRONTEND ONLY — REACT + VITE
+
+Only create these files when user chose "Frontend only → React + Vite". Skip all Python/backend files entirely.
+
+#### Directory structure
+
+```
+<app-name>/
+├── src/
+│   ├── components/
+│   │   ├── ui/
+│   │   │   ├── Button.tsx
+│   │   │   ├── Input.tsx
+│   │   │   └── index.ts
+│   │   ├── layout/
+│   │   │   └── Header.tsx
+│   │   └── features/      ← empty, fill with page-specific components
+│   ├── pages/
+│   │   ├── HomePage.tsx
+│   │   ├── LoginPage.tsx
+│   │   ├── DashboardPage.tsx
+│   │   └── NotFoundPage.tsx
+│   ├── hooks/
+│   │   └── useAuth.ts
+│   ├── lib/
+│   │   ├── api.ts
+│   │   └── utils.ts
+│   ├── store/
+│   │   └── auth.ts
+│   ├── types/
+│   │   └── index.ts
+│   ├── App.tsx
+│   ├── main.tsx
+│   └── index.css
+├── public/
+├── index.html
+├── vite.config.ts
+├── tsconfig.json
+├── tsconfig.node.json
+├── package.json
+├── .env.example
+├── .gitignore
+├── .github/workflows/ci.yml
+└── CLAUDE.md
+```
+
+#### `package.json`
+```json
+{
+  "name": "<app-name>",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^6.28.0",
+    "zustand": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.6.2",
+    "vite": "^6.0.0",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14"
+  }
+}
+```
+
+#### `vite.config.ts`
+```ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import path from "path";
+
+export default defineConfig({
+  plugins: [react(), tailwindcss()],
+  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+});
+```
+
+#### `tsconfig.json`
+```json
+{
+  "files": [],
+  "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
+}
+```
+
+#### `tsconfig.node.json`
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022", "lib": ["ES2023"], "module": "ESNext",
+    "moduleResolution": "bundler", "allowImportingTsExtensions": true,
+    "isolatedModules": true, "moduleDetection": "force",
+    "noEmit": true, "strict": true, "skipLibCheck": true
+  },
+  "include": ["vite.config.ts"]
+}
+```
+
+#### `index.html`
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><APP NAME></title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+```
+
+#### `src/main.tsx`
+```tsx
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import App from "./App";
+createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);
+```
+
+#### `src/App.tsx`
+```tsx
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HomePage } from "./pages/HomePage";
+import { LoginPage } from "./pages/LoginPage";
+import { DashboardPage } from "./pages/DashboardPage";
+import { NotFoundPage } from "./pages/NotFoundPage";
+import { useAuthStore } from "./store/auth";
+
+function PrivateRoute({ children }: { children: React.ReactNode }) {
+  const token = useAuthStore(s => s.token);
+  return token ? <>{children}</> : <Navigate to="/login" replace />;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/dashboard" element={<PrivateRoute><DashboardPage /></PrivateRoute>} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+```
+
+#### `src/index.css`
+```css
+@import "tailwindcss";
+
+:root {
+  --color-background: #ffffff;
+  --color-surface: #f9fafb;
+  --color-text-primary: #111827;
+  --color-text-secondary: #6b7280;
+  --color-accent: #2563eb;
+  --color-border: #e5e7eb;
+  --radius: 6px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: var(--color-background); color: var(--color-text-primary); }
+```
+
+#### `src/store/auth.ts`
+```ts
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+interface AuthState {
+  token: string | null;
+  email: string | null;
+  setToken: (token: string, email: string) => void;
+  signOut: () => void;
+}
+
+export const useAuthStore = create<AuthState>()(
+  persist(
+    set => ({
+      token: null, email: null,
+      setToken: (token, email) => set({ token, email }),
+      signOut: () => set({ token: null, email: null }),
+    }),
+    { name: "auth-storage" }
+  )
+);
+```
+
+#### `src/lib/api.ts`
+```ts
+const BASE_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
+
+function getToken(): string | null {
+  try { return JSON.parse(localStorage.getItem("auth-storage") ?? "{}").state?.token ?? null; }
+  catch { return null; }
+}
+
+interface FetchOptions extends RequestInit { on401?: () => void; }
+
+async function request<T>(path: string, options: FetchOptions = {}): Promise<T> {
+  const token = getToken();
+  const res = await fetch(`${BASE_URL}${path}`, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...options.headers },
+  });
+  if (res.status === 401) { options.on401?.(); throw new Error("Unauthorized"); }
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+export const api = {
+  get: <T>(path: string, opts?: FetchOptions) => request<T>(path, { method: "GET", ...opts }),
+  post: <T>(path: string, body?: unknown, opts?: FetchOptions) =>
+    request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined, ...opts }),
+  delete: <T>(path: string, opts?: FetchOptions) => request<T>(path, { method: "DELETE", ...opts }),
+};
+```
+
+#### `src/lib/utils.ts`
+```ts
+export const cn = (...c: (string | undefined | false | null)[]): string => c.filter(Boolean).join(" ");
+export const formatDate = (iso: string): string =>
+  new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+```
+
+#### `src/hooks/useAuth.ts`
+```ts
+import { useNavigate } from "react-router-dom";
+import { useAuthStore } from "@/store/auth";
+
+export function useAuth() {
+  const { token, email, setToken, signOut: storeSignOut } = useAuthStore();
+  const navigate = useNavigate();
+  return { token, email, isLoggedIn: !!token, setToken, signOut: () => { storeSignOut(); navigate("/login"); } };
+}
+```
+
+#### `src/pages/HomePage.tsx`
+```tsx
+import { Link } from "react-router-dom";
+export function HomePage() {
+  return (
+    <main style={{ padding: "4rem 2rem", maxWidth: 640, margin: "0 auto" }}>
+      <h1 style={{ fontWeight: 800, fontSize: 48, letterSpacing: "-0.03em", marginBottom: 16 }}>&lt;APP NAME&gt;</h1>
+      <p style={{ color: "var(--color-text-secondary)", fontSize: 16, marginBottom: 32 }}>Your app description here.</p>
+      <Link to="/login" style={{ padding: "10px 20px", backgroundColor: "var(--color-accent)", color: "#fff", borderRadius: "var(--radius)", textDecoration: "none", fontWeight: 600 }}>
+        Get started →
+      </Link>
+    </main>
+  );
+}
+```
+
+#### `src/pages/LoginPage.tsx`
+```tsx
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+import { api } from "@/lib/api";
+
+export function LoginPage() {
+  const navigate = useNavigate();
+  const { setToken } = useAuth();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const res = await api.post<{ access_token: string }>("/auth/login", { email, password });
+      setToken(res.access_token, email);
+      navigate("/dashboard");
+    } catch { setError("Invalid email or password."); }
+  }
+
+  return (
+    <main style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12, width: 320 }}>
+        <h1 style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.02em" }}>Sign in</h1>
+        {error && <p role="alert" style={{ color: "var(--color-error, #dc2626)", fontSize: 13 }}>{error}</p>}
+        <label htmlFor="email" style={{ fontSize: 13, fontWeight: 500 }}>Email</label>
+        <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required
+          style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }} />
+        <label htmlFor="password" style={{ fontSize: 13, fontWeight: 500 }}>Password</label>
+        <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required
+          style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }} />
+        <button type="submit" style={{ padding: "10px", backgroundColor: "var(--color-accent)", color: "#fff", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: "pointer" }}>
+          Sign in
+        </button>
+      </form>
+    </main>
+  );
+}
+```
+
+#### `src/pages/DashboardPage.tsx`
+```tsx
+import { useAuth } from "@/hooks/useAuth";
+export function DashboardPage() {
+  const { email, signOut } = useAuth();
+  return (
+    <main style={{ padding: "2rem" }}>
+      <h1>Dashboard</h1>
+      <p>Signed in as {email}</p>
+      <button onClick={signOut} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-secondary)" }}>Sign out</button>
+    </main>
+  );
+}
+```
+
+#### `src/pages/NotFoundPage.tsx`
+```tsx
+import { Link } from "react-router-dom";
+export function NotFoundPage() {
+  return (
+    <main style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", gap: 16 }}>
+      <p style={{ fontWeight: 800, fontSize: 64, letterSpacing: "-0.04em", color: "var(--color-text-secondary)" }}>404</p>
+      <p>This page does not exist.</p>
+      <Link to="/">Go home</Link>
+    </main>
+  );
+}
+```
+
+#### `src/components/ui/Button.tsx`
+```tsx
+interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+  variant?: "primary" | "secondary" | "ghost";
+  size?: "sm" | "md" | "lg";
+}
+export function Button({ variant = "primary", size = "md", children, ...props }: ButtonProps) {
+  const pad = { sm: "8px 12px", md: "10px 18px", lg: "12px 24px" }[size];
+  return (
+    <button {...props} style={{
+      padding: pad, cursor: "pointer", fontWeight: 500, borderRadius: "var(--radius)",
+      backgroundColor: variant === "primary" ? "var(--color-accent)" : "transparent",
+      color: variant === "primary" ? "#fff" : "var(--color-text-primary)",
+      border: variant === "secondary" ? "1px solid var(--color-border)" : "none",
+      ...props.style,
+    }}>{children}</button>
+  );
+}
+```
+
+#### `src/components/ui/Input.tsx`
+```tsx
+interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> { label?: string; }
+export function Input({ label, id, ...props }: InputProps) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+      {label && <label htmlFor={id} style={{ fontSize: 13, fontWeight: 500 }}>{label}</label>}
+      <input id={id} {...props} style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", fontSize: 14, ...props.style }} />
+    </div>
+  );
+}
+```
+
+#### `src/components/ui/index.ts`
+```ts
+export { Button } from "./Button";
+export { Input } from "./Input";
+```
+
+#### `src/components/layout/Header.tsx`
+```tsx
+import { Link } from "react-router-dom";
+import { useAuth } from "@/hooks/useAuth";
+export function Header() {
+  const { isLoggedIn, signOut } = useAuth();
+  return (
+    <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", height: 56, borderBottom: "1px solid var(--color-border)" }}>
+      <Link to="/" style={{ fontWeight: 700, textDecoration: "none", color: "var(--color-text-primary)" }}>&lt;APP NAME&gt;</Link>
+      <nav>
+        {isLoggedIn
+          ? <button onClick={signOut} style={{ background: "none", border: "none", cursor: "pointer" }}>Sign out</button>
+          : <Link to="/login" style={{ textDecoration: "none", color: "var(--color-text-secondary)" }}>Sign in</Link>}
+      </nav>
+    </header>
+  );
+}
+```
+
+#### `src/types/index.ts`
+```ts
+export interface User { id: string; email: string; role: string; org_id: string; }
+export interface ApiError { detail: string; status: number; }
+```
+
+#### `.env.example`
+```bash
+VITE_API_URL=http://localhost:8000
+```
+
+#### `.gitignore`
+```
+node_modules/
+dist/
+.env.local
+.env*.local
+```
+
+#### `.github/workflows/ci.yml`
+```yaml
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+jobs:
+  frontend:
+    name: Frontend — type-check + build + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run build
+      - run: npm run lint
+```
+
+#### `CLAUDE.md` (React + Vite variant)
+```markdown
+# CLAUDE.md — <APP NAME>
+
+## THIS PROJECT
+**Stack:** React 19, Vite 6, TypeScript, Tailwind CSS v4, React Router v6, Zustand
+**API:** VITE_API_URL in .env
+
+## DEV
+```bash
+npm install && npm run dev   # http://localhost:5173
+npm run type-check           # TypeScript without building
+```
+
+## STRUCTURE
+```
+src/components/ui/       ← primitives — Button, Input, no business logic
+src/components/layout/   ← Header, Sidebar — app chrome
+src/components/features/ ← page-specific components
+src/pages/               ← one file per route, imported in App.tsx
+src/hooks/useAuth.ts     ← auth hook wrapping Zustand store
+src/lib/api.ts           ← all API calls go here, never raw fetch()
+src/store/auth.ts        ← Zustand + localStorage persistence
+src/types/               ← shared TypeScript interfaces
+```
+
+## RULES
+- All API calls use src/lib/api.ts — never raw fetch() in components
+- Auth state lives in Zustand store — never useState for auth
+- src/components/ui/ are pure primitives — no router imports, no API calls
+- CSS custom properties only — never raw hex in components
+- Every input must have a label with htmlFor
+```
+```
+
+---
+
 ### `CLAUDE.md`
 Generate a CLAUDE.md using this template, filling in the app name:
 
@@ -1256,3 +2168,52 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
 
 ════════════════════════════════════════════
 ```
+
+### If "Frontend only" was chosen, print this summary instead:
+
+```
+════════════════════════════════════════════
+  PROJECT SCAFFOLDED — [app name]
+  Mode: Frontend only ([Next.js / React + Vite])
+════════════════════════════════════════════
+
+Files created: [N]
+Stack: [Next.js 15 + Tailwind CSS v4 / React 19 + Vite 6 + Tailwind CSS v4]
+
+── Start ───────────────────────────────────
+  cp .env.example .env
+  npm install
+  npm run dev    # http://localhost:[3000 / 5173]
+
+── Component structure ─────────────────────
+  components/ui/       primitives (Button, Input)       [Next.js]
+  src/components/ui/   primitives (Button, Input)       [Vite]
+  */layout/            app chrome (Header)
+  */features/          page-specific — fill this in
+  lib/api.ts           fetch wrapper — always use this, never raw fetch
+  src/store/auth.ts    Zustand auth store                [Vite only]
+
+── What's ready ────────────────────────────
+  ✅ Industry-standard folder structure
+  ✅ TypeScript strict mode
+  ✅ Tailwind CSS v4 with CSS custom properties
+  ✅ Auth flow (login page + route guard)
+  ✅ API fetch wrapper with Bearer token auth
+  ✅ CSS custom properties — theme-ready, never raw hex
+  ✅ GitHub Actions CI (type-check + build + lint)
+  ✅ CLAUDE.md with structure rules
+
+── Next steps ──────────────────────────────
+  1. Fill in .env (set API URL if connecting to a backend)
+  2. Build your first feature in components/features/
+  3. Run /enterprise-ai-audit to check for gaps
+
+════════════════════════════════════════════
+```
+
+### If "Backend only" was chosen, print the standard summary but replace the stack line:
+
+```
+Stack: FastAPI + PostgreSQL + Redis (no frontend)
+```
+And omit the `make frontend` and frontend CI lines from the "What's ready" list.
