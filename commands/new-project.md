@@ -1,4 +1,4 @@
-﻿---
+---
 name: new-project
 description: >
   Scaffold a complete production-ready project foundation from scratch. Use this skill
@@ -83,7 +83,6 @@ Create all files in parallel. Use the app name provided. Adapt based on app type
 │   ├── db/               ← schema, migrations
 │   ├── jobs/             ← scheduled work + background tasks
 │   ├── schemas/          ← Pydantic output models (AI + SaaS only)
-│   ├── config/           ← loader.py + platform.yaml + product.yaml
 │   └── main.py
 ├── deploy/               ← Modal, Dockerfile variants (AI + SaaS only)
 ├── tests/
@@ -108,7 +107,7 @@ Create all files in parallel. Use the app name provided. Adapt based on app type
 ### `app/__init__.py`
 Empty file.
 
-### `app/config/loader.py`
+### `app/config.py`
 ```python
 from pydantic_settings import BaseSettings
 from functools import lru_cache
@@ -869,37 +868,19 @@ repos:
 
 ### `Dockerfile`
 ```dockerfile
-# ── Stage 1: dependency builder ──────────────────────────────────────────────
-FROM python:3.11-slim AS builder
-
-WORKDIR /build
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
-
-
-# ── Stage 2: runtime image ────────────────────────────────────────────────────
-FROM python:3.11-slim AS runtime
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Non-root user
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy installed packages from builder
-COPY --from=builder /install /usr/local
-
-# Copy application code only (secrets/tests/tools excluded via .dockerignore)
-COPY app/ app/
-COPY alembic/ alembic/
-COPY alembic.ini .
-
-USER appuser
+COPY . .
 
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+  CMD curl -f http://localhost:8000/health || exit 1
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 ```
@@ -1885,8 +1866,6 @@ components/layout/   ← Header, Footer, Sidebar — app shell
 components/features/ ← page-specific business components
 lib/api.ts           ← all fetch calls go through api.get / api.post
 lib/hooks.ts         ← useAuth, useBreakpoint
-lib/types.ts         ← shared domain interfaces (never define types in multiple files)
-lib/constants.ts     ← display maps, status lookups, static data
 lib/utils.ts         ← cn(), formatDate()
 ```
 
