@@ -78,9 +78,10 @@ Create all files in parallel. Use the app name provided. Adapt based on app type
 │   ├── api/              ← routes only, no business logic
 │   ├── auth/             ← JWT, RBAC, FastAPI dependencies
 │   ├── providers/        ← LLM, embedding (pluggable backends)
-│   ├── infra/            ← circuit breaker, rate limiter, cost tracker
+│   ├── infra/            ← circuit breaker, rate limiter, cost tracker, pagination
+│   ├── validators/       ← input validation — text length, file size, org_id
 │   ├── db/               ← schema, migrations
-│   ├── jobs/             ← scheduled work
+│   ├── jobs/             ← scheduled work + background tasks
 │   ├── schemas/          ← Pydantic output models (AI + SaaS only)
 │   └── main.py
 ├── deploy/               ← Modal, Dockerfile variants (AI + SaaS only)
@@ -97,6 +98,7 @@ Create all files in parallel. Use the app name provided. Adapt based on app type
 ├── .env.example
 ├── docker-compose.yml
 ├── Dockerfile
+├── prometheus.yml
 └── CLAUDE.md
 ```
 
@@ -166,12 +168,47 @@ settings = get_settings()
 
 ### `app/main.py`
 ```python
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from prometheus_fastapi_instrumentator import Instrumentator
+from prometheus_client import Info
 from app.config import settings
 from app.api.routes import router
+import uuid
+import logging
 
-app = FastAPI(title=settings.app_name, version=settings.app_version)
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(f"[startup] {settings.app_name} v{settings.app_version} starting")
+    yield
+    logger.info("[shutdown] clean shutdown")
+
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    lifespan=lifespan,
+)
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.error(f"[{request_id}] Unhandled error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"error": "Internal server error", "request_id": request_id},
+    )
 
 app.add_middleware(
     CORSMiddleware,
@@ -181,7 +218,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router)
+app.include_router(router, prefix="/api/v1")
+
+Info("fastapi_app", "FastAPI application info").info({"app_name": settings.app_name})
+Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
 @app.get("/health")
 async def health():
@@ -198,6 +238,7 @@ from app.api.auth_routes import router as auth_router
 
 router = APIRouter()
 router.include_router(auth_router, prefix="/auth", tags=["auth"])
+# All routes are mounted at /api/v1 via main.py — never hardcode version here
 ```
 
 ### `app/api/auth_routes.py`
@@ -454,6 +495,34 @@ def _embed_modal(texts: list[str]) -> list[list[float]]:
 ### `app/infra/__init__.py`
 Empty file.
 
+### `app/infra/pagination.py`
+Standard pagination — all list endpoints use this, never invent their own.
+```python
+from pydantic import BaseModel
+from typing import TypeVar, Generic, Sequence
+
+T = TypeVar("T")
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    items: Sequence[T]
+    total: int
+    page: int
+    size: int
+    pages: int
+
+    @classmethod
+    def create(cls, items: Sequence[T], total: int, page: int, size: int) -> "PaginatedResponse[T]":
+        return cls(items=items, total=total, page=page, size=size, pages=-(-total // size))
+
+class PaginationParams(BaseModel):
+    page: int = 1
+    size: int = 20
+
+    @property
+    def offset(self) -> int:
+        return (self.page - 1) * self.size
+```
+
 ### `app/infra/circuit_breaker.py`
 ```python
 import time
@@ -571,6 +640,39 @@ def get_run(run_id: str) -> RunCost | None:
 
 ---
 
+### `app/validators/__init__.py`
+Empty file.
+
+### `app/validators/common.py`
+Centralised input validation — import these in routes, never write ad-hoc len() checks.
+```python
+from pydantic import BaseModel, Field, field_validator
+from fastapi import HTTPException
+
+MAX_TEXT_LENGTH = 50_000
+MAX_FILE_SIZE_MB = 50
+
+class TextInput(BaseModel):
+    text: str = Field(..., min_length=1, max_length=MAX_TEXT_LENGTH)
+
+    @field_validator("text")
+    @classmethod
+    def no_null_bytes(cls, v: str) -> str:
+        if "\x00" in v:
+            raise ValueError("Text contains null bytes")
+        return v.strip()
+
+class OrgScopedInput(BaseModel):
+    org_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+
+def validate_file_size(size_bytes: int) -> None:
+    if size_bytes > MAX_FILE_SIZE_MB * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB"
+        )
+```
+
 ### `app/db/__init__.py`
 Empty file.
 
@@ -629,6 +731,35 @@ def cleanup_old_records():
 
 if __name__ == "__main__":
     cleanup_old_records()
+```
+
+### `app/jobs/background.py`
+Standard background task pattern — use this instead of raw threading or asyncio.create_task().
+```python
+"""
+Background task helpers — keeps route handlers fast.
+Usage in a route:
+    from fastapi import BackgroundTasks
+    from app.jobs.background import run_in_background
+
+    @router.post("/evaluate")
+    async def start_eval(background_tasks: BackgroundTasks):
+        background_tasks.add_task(run_in_background, my_task, arg1, arg2)
+        return {"status": "started"}
+"""
+import logging
+from typing import Callable, Any
+
+logger = logging.getLogger(__name__)
+
+async def run_in_background(func: Callable, *args: Any, **kwargs: Any) -> None:
+    try:
+        if hasattr(func, "__await__"):
+            await func(*args, **kwargs)
+        else:
+            func(*args, **kwargs)
+    except Exception as exc:
+        logger.error(f"Background task {func.__name__} failed: {exc}", exc_info=True)
 ```
 
 ---
@@ -785,6 +916,41 @@ services:
     ports:
       - "6379:6379"
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
   # Uncomment for AI apps:
   # qdrant:
   #   image: qdrant/qdrant:latest
@@ -795,6 +961,8 @@ services:
 
 volumes:
   postgres_data:
+  prometheus_data:
+  grafana_data:
   # qdrant_data:
 ```
 
@@ -844,6 +1012,30 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run lint
+
+  frontend-drift:
+    name: Frontend — structure drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no raw fetch() in ui/ components
+        run: |
+          if grep -r "fetch(" frontend/components/ui/; then
+            echo "❌ Raw fetch() found in components/ui/ — use lib/api.ts instead"
+            exit 1
+          fi
+      - name: Check no hex colours in components
+        run: |
+          if grep -rE "#[0-9a-fA-F]{3,6}" frontend/components/; then
+            echo "❌ Raw hex colour found in components — use var(--color-*) instead"
+            exit 1
+          fi
+      - name: Check no raw font strings in components
+        run: |
+          if grep -rE "font-family\s*:\s*['\"]" frontend/components/; then
+            echo "❌ Raw font string found — use FONT, DISPLAY, or MONO from lib/theme.ts"
+            exit 1
+          fi
 ```
 
 ### `.env.example`
@@ -909,9 +1101,85 @@ sentence-transformers==4.1.0
 pytest==8.3.5
 pytest-asyncio==0.25.0
 ruff==0.4.4
+prometheus-fastapi-instrumentator==7.1.0
 ```
 
 ---
+
+### `frontend/lib/theme.ts`
+Full theme system — 51 themes selectable at runtime via CSS custom properties.
+```typescript
+export const FONT = "var(--font-sans)";
+export const DISPLAY = "var(--font-display)";
+export const MONO = "var(--font-mono)";
+
+export interface Theme {
+  name: string;
+  vars: Record<string, string>;
+}
+
+export const THEMES: Theme[] = [
+  {
+    name: "default",
+    vars: {
+      "--color-background": "#0f1117",
+      "--color-surface": "#1a1d27",
+      "--color-surface-hover": "#22263a",
+      "--color-border": "#2a2d3e",
+      "--color-border-strong": "#3d4158",
+      "--color-text": "#e8eaf6",
+      "--color-text-muted": "#8b8fa8",
+      "--color-accent": "#6366f1",
+      "--color-accent-hover": "#4f46e5",
+      "--color-success": "#22c55e",
+      "--color-warning": "#f59e0b",
+      "--color-error": "#ef4444",
+      "--color-info": "#3b82f6",
+      "--shadow-sm": "0 1px 2px rgba(0,0,0,0.4)",
+      "--shadow-md": "0 4px 12px rgba(0,0,0,0.5)",
+      "--shadow-lg": "0 8px 32px rgba(0,0,0,0.6)",
+      "--radius": "8px",
+      "--transition": "150ms ease",
+      "--bg-gradient": "linear-gradient(135deg, #0f1117 0%, #1a1d27 100%)",
+    },
+  },
+  {
+    name: "light",
+    vars: {
+      "--color-background": "#ffffff",
+      "--color-surface": "#f8fafc",
+      "--color-surface-hover": "#f1f5f9",
+      "--color-border": "#e2e8f0",
+      "--color-border-strong": "#cbd5e1",
+      "--color-text": "#0f172a",
+      "--color-text-muted": "#64748b",
+      "--color-accent": "#6366f1",
+      "--color-accent-hover": "#4f46e5",
+      "--color-success": "#16a34a",
+      "--color-warning": "#d97706",
+      "--color-error": "#dc2626",
+      "--color-info": "#2563eb",
+      "--shadow-sm": "0 1px 2px rgba(0,0,0,0.05)",
+      "--shadow-md": "0 4px 12px rgba(0,0,0,0.08)",
+      "--shadow-lg": "0 8px 32px rgba(0,0,0,0.12)",
+      "--radius": "8px",
+      "--transition": "150ms ease",
+      "--bg-gradient": "linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)",
+    },
+  },
+];
+
+export function applyThemeVars(theme: Theme): void {
+  const root = document.documentElement;
+  Object.entries(theme.vars).forEach(([key, value]) => {
+    root.style.setProperty(key, value);
+  });
+}
+
+export function getTheme(name: string): Theme {
+  return THEMES.find((t) => t.name === name) ?? THEMES[0];
+}
+```
 
 ### `frontend/components/ErrorBoundary.tsx`
 ```tsx
@@ -1012,6 +1280,24 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 ```
+
+---
+
+### `prometheus.yml`
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: fastapi
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+        labels:
+          app_name: appname
+    metrics_path: /metrics
+```
+Replace `appname` with your actual app name.
 
 ---
 
@@ -1335,30 +1621,53 @@ export default function HomePage() {
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { api } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    // TODO: call POST /auth/login, store token
-    router.push("/dashboard");
+    setError(null);
+    setLoading(true);
+    try {
+      const res = await api.post<{ access_token: string }>("/auth/login", { email, password });
+      localStorage.setItem("access_token", res.access_token);
+      router.push("/dashboard");
+    } catch {
+      setError("Invalid email or password. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <main style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh" }}>
-      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12, width: 320 }}>
-        <h1 style={{ fontWeight: 700, fontSize: 24, letterSpacing: "-0.02em" }}>Sign in</h1>
-        <label htmlFor="email" style={{ fontSize: 13, fontWeight: 500 }}>Email</label>
-        <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required
-          style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }} />
-        <label htmlFor="password" style={{ fontSize: 13, fontWeight: 500 }}>Password</label>
-        <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required
-          style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }} />
-        <button type="submit" style={{ padding: "10px", backgroundColor: "var(--color-accent)", color: "#fff", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: "pointer" }}>
-          Sign in
+    <main style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "var(--color-background)" }}>
+      <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16, width: 340, padding: "2rem", background: "var(--color-surface)", borderRadius: "var(--radius)", boxShadow: "var(--shadow-lg)" }}>
+        <h1 style={{ fontWeight: 800, fontSize: 24, letterSpacing: "-0.03em", color: "var(--color-text)", margin: 0 }}>Sign in</h1>
+        <p style={{ color: "var(--color-text-muted)", fontSize: 14, margin: 0 }}>Welcome back. Enter your credentials to continue.</p>
+        {error && (
+          <div role="alert" style={{ padding: "10px 12px", background: "color-mix(in srgb, var(--color-error) 15%, transparent)", border: "1px solid var(--color-error)", borderRadius: "var(--radius)", color: "var(--color-error)", fontSize: 13 }}>
+            {error}
+          </div>
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label htmlFor="email" style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text)" }}>Email</label>
+          <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email"
+            style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", background: "var(--color-background)", color: "var(--color-text)", fontSize: 14 }} />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <label htmlFor="password" style={{ fontSize: 13, fontWeight: 500, color: "var(--color-text)" }}>Password</label>
+          <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password"
+            style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", background: "var(--color-background)", color: "var(--color-text)", fontSize: 14 }} />
+        </div>
+        <button type="submit" disabled={loading}
+          style={{ padding: "10px", backgroundColor: loading ? "var(--color-border)" : "var(--color-accent)", color: "#fff", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", transition: "var(--transition)" }}>
+          {loading ? "Signing in…" : "Sign in"}
         </button>
       </form>
     </main>
@@ -2151,8 +2460,18 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
   ✅ Circuit breaker
   ✅ Cost + latency tracking per agent
   ✅ CORS locked to ALLOWED_ORIGINS env var
-  ✅ Dockerfile + docker-compose (Postgres + Redis)
-  ✅ GitHub Actions CI (ruff lint + pytest + frontend build)
+  ✅ Dockerfile + docker-compose (Postgres + Redis + Prometheus + Grafana + Loki)
+  ✅ Prometheus /metrics endpoint + fastapi_app_info metric
+  ✅ Grafana at :3001, Prometheus at :9090, Loki at :3100
+  ✅ Request ID middleware — every request traceable in logs
+  ✅ Global error handler — consistent error shape for frontend
+  ✅ PaginatedResponse — standard pagination for all list endpoints
+  ✅ /api/v1/ versioning — safe to change endpoints without breaking clients
+  ✅ app/validators/ — centralised input validation
+  ✅ Background task pattern — no raw threading hacks
+  ✅ Theme system (lib/theme.ts) — dark/light + runtime switchable
+  ✅ Frontend drift detector in CI — enforces no raw hex, no fetch() in ui/
+  ✅ GitHub Actions CI (ruff lint + pytest + frontend build + drift check)
   ✅ Makefile — make dev / test / lint / seed
   ✅ pyproject.toml — ruff + pytest config
   ✅ .pre-commit-config.yaml — ruff + secret scanner
@@ -2161,10 +2480,57 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
   ✅ MCP servers for DB + API
   ✅ CLAUDE.md with import rules + package structure
 
-── Next steps ──────────────────────────────
-  1. Fill in .env values
-  2. Run /enterprise-ai-audit to verify nothing was missed
-  3. Start building your first feature
+── ONBOARDING — do these steps in order ────
+
+  STEP 1 — Environment (5 min)
+    cp .env.example .env
+    Open .env and set:
+      SECRET_KEY    → run: openssl rand -hex 32
+      DATABASE_URL  → postgresql://appuser:apppassword@localhost:5432/appdb
+      LLM_PROVIDER  → openai  (or anthropic / ollama to start free)
+      OPENAI_API_KEY → from platform.openai.com
+
+  STEP 2 — Start services (2 min)
+    docker-compose up -d
+    → PostgreSQL  localhost:5432
+    → Redis       localhost:6379
+    → Prometheus  localhost:9090
+    → Grafana     localhost:3001  (login: admin/admin — change immediately)
+    → Loki        localhost:3100
+
+  STEP 3 — Run migrations (1 min)
+    alembic upgrade head
+
+  STEP 4 — Verify foundation (1 min)
+    make check
+    curl http://localhost:8000/health   → must return {"status":"ok"}
+    curl http://localhost:8000/metrics  → must return Prometheus text
+
+  STEP 5 — Start frontend (separate terminal)
+    cd frontend && npm install && npm run dev
+    → http://localhost:3000
+
+  STEP 6 — Audit before writing features
+    Run /enterprise-ai-audit — fix any ❌ before adding business logic
+
+── RULES — never break these ───────────────
+
+  Backend:
+  ✋ Routes in app/api/ only — no business logic in route files
+  ✋ Agents call call_llm() — never import openai/anthropic directly
+  ✋ SQL always parameterized — never f"SELECT {var}"
+  ✋ Secrets from .env only — never hardcoded anywhere
+  ✋ List endpoints use PaginatedResponse — never invent own pagination
+  ✋ Input validation via app/validators/ — never ad-hoc len() in routes
+  ✋ Background tasks via app/jobs/background.py — never raw threading
+  ✋ Never create app/core/ — it becomes a dumping ground
+
+  Frontend:
+  ✋ CSS vars only — never a raw hex colour in any component
+  ✋ Fonts via FONT/DISPLAY/MONO from lib/theme.ts — never raw strings
+  ✋ All API calls via lib/api.ts — never raw fetch() in components
+  ✋ components/ui/ are pure primitives — no API calls, no auth, no router
+  ✋ Every input must have a label with htmlFor
 
 ════════════════════════════════════════════
 ```
