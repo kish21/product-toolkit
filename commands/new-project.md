@@ -62,7 +62,7 @@ Wait for all answers before proceeding.
 
 Create all files in parallel. Use the app name provided. Adapt based on app type:
 - Skip frontend files if "API only"
-- Add Qdrant + AI files and `app/schemas/` if "AI + SaaS"
+- Add Qdrant + AI files, `app/schemas/`, `app/prompts/`, and `tools/push_prompts.py` if "AI + SaaS"
 - Add billing file if billing = yes
 - Add `deploy/modal.py` if "AI + SaaS"
 - If "Backend only": skip all frontend files (ErrorBoundary, EmptyState, SkeletonLoader, AuthGuard, Makefile `frontend` target, CI `frontend` job)
@@ -83,12 +83,14 @@ Create all files in parallel. Use the app name provided. Adapt based on app type
 │   ├── db/               ← schema, migrations
 │   ├── jobs/             ← scheduled work + background tasks
 │   ├── schemas/          ← Pydantic output models (AI + SaaS only)
+│   ├── prompts/          ← LangSmith prompt YAML files + registry.py (AI + SaaS only)
 │   └── main.py
 ├── deploy/               ← Modal, Dockerfile variants (AI + SaaS only)
 ├── tests/
 │   ├── unit/
 │   ├── integration/
 │   └── fixtures/
+├── tools/                ← build quality: checkpoint_runner, drift_detector, smoke_test (never ops)
 ├── scripts/              ← ops only: seed, reset (never test code)
 ├── .mcp/                 ← MCP servers for Claude Code
 ├── .github/workflows/
@@ -362,93 +364,122 @@ Empty file.
 LLM abstraction — swap providers via `LLM_PROVIDER` in `.env`.
 Agents call `call_llm()` — never import provider SDKs directly in agent files.
 
+**Interface:** `messages: list[dict]` — standard OpenAI/Anthropic format. Pass system prompt as
+`{"role": "system", "content": "..."}` and user turn as `{"role": "user", "content": "..."}`.
+This handles multi-turn, caching, and all providers uniformly — never use `(system_prompt, user_message)` positional params.
+
 Providers: `openai | anthropic | openrouter | ollama | azure | modal`
 ```python
+import time
+from typing import Optional
 from app.config import settings
 
-async def call_llm(
-    system_prompt: str,
-    user_message: str,
-    model: str | None = None,
-    max_tokens: int = 4096,
-    temperature: float = 0.1,
-    stream: bool = False,
-) -> str:
+
+def _http_client():
+    """Return an httpx.AsyncClient with SSL disabled when SSL_VERIFY=false (Windows corp proxies)."""
+    if not getattr(settings, "ssl_verify", True):
+        import httpx
+        return httpx.AsyncClient(verify=False)
+    return None
+
+
+def get_llm_client():
     provider = settings.llm_provider.lower()
+    http_client = _http_client()
+
     if provider == "openai":
-        return await _call_openai(system_prompt, user_message, model or "gpt-4o", max_tokens, temperature)
+        from openai import AsyncOpenAI
+        kwargs = {"api_key": settings.openai_api_key}
+        if http_client:
+            kwargs["http_client"] = http_client
+        return AsyncOpenAI(**kwargs)
+
     elif provider == "anthropic":
-        return await _call_anthropic(system_prompt, user_message, model or "claude-sonnet-4-6", max_tokens, temperature)
+        from anthropic import AsyncAnthropic
+        kwargs = {"api_key": settings.anthropic_api_key}
+        if http_client:
+            kwargs["http_client"] = http_client
+        return AsyncAnthropic(**kwargs)
+
     elif provider == "openrouter":
-        return await _call_openrouter(system_prompt, user_message, model or "openai/gpt-4o", max_tokens, temperature)
+        from openai import AsyncOpenAI
+        kwargs = {"api_key": settings.openrouter_api_key, "base_url": "https://openrouter.ai/api/v1"}
+        if http_client:
+            kwargs["http_client"] = http_client
+        return AsyncOpenAI(**kwargs)
+
     elif provider == "ollama":
-        return await _call_ollama(system_prompt, user_message, model or "qwen2.5:72b", max_tokens)
+        from openai import AsyncOpenAI
+        return AsyncOpenAI(api_key="ollama", base_url=f"{settings.ollama_base_url}/v1")
+
     elif provider == "azure":
-        return await _call_azure(system_prompt, user_message, max_tokens, temperature)
+        from openai import AsyncAzureOpenAI
+        kwargs = {
+            "api_key": settings.azure_openai_api_key,
+            "azure_endpoint": settings.azure_openai_endpoint,
+            "api_version": "2024-02-01",
+        }
+        if http_client:
+            kwargs["http_client"] = http_client
+        return AsyncAzureOpenAI(**kwargs)
+
     elif provider == "modal":
-        return await _call_modal(system_prompt, user_message, max_tokens)
+        from openai import AsyncOpenAI
+        import httpx
+        modal_http = httpx.AsyncClient(timeout=600, verify=getattr(settings, "ssl_verify", True), follow_redirects=True)
+        return AsyncOpenAI(api_key="modal", base_url=f"{settings.modal_llm_url.rstrip('/')}/v1", http_client=modal_http)
+
     else:
-        raise ValueError(f"Unknown LLM_PROVIDER: '{provider}'")
+        raise ValueError(f"Unknown LLM_PROVIDER: '{provider}'. Valid: openai, anthropic, openrouter, ollama, azure, modal")
 
-async def _call_openai(system_prompt, user_message, model, max_tokens, temperature) -> str:
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=settings.openai_api_key)
-    response = await client.chat.completions.create(
-        model=model, max_tokens=max_tokens, temperature=temperature,
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-    )
-    return response.choices[0].message.content
 
-async def _call_anthropic(system_prompt, user_message, model, max_tokens, temperature) -> str:
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
-    # Prompt caching — cache long system prompts to save 60-90% cost
-    response = await client.beta.prompt_caching.messages.create(
-        model=model, max_tokens=max_tokens,
-        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
-        messages=[{"role": "user", "content": user_message}],
-    )
-    return response.content[0].text
+def get_model_name() -> str:
+    mapping = {
+        "openai":     getattr(settings, "openai_model", "gpt-4o"),
+        "anthropic":  getattr(settings, "anthropic_model", "claude-sonnet-4-6"),
+        "openrouter": getattr(settings, "openrouter_model", "openai/gpt-4o"),
+        "ollama":     getattr(settings, "ollama_model", "qwen2.5:72b"),
+        "azure":      settings.azure_openai_deployment,
+        "modal":      getattr(settings, "modal_llm_model", "served-model"),
+    }
+    return mapping.get(settings.llm_provider.lower(), "gpt-4o")
 
-async def _call_openrouter(system_prompt, user_message, model, max_tokens, temperature) -> str:
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key=settings.openrouter_api_key, base_url="https://openrouter.ai/api/v1")
-    response = await client.chat.completions.create(
-        model=model, max_tokens=max_tokens, temperature=temperature,
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-    )
-    return response.choices[0].message.content
 
-async def _call_ollama(system_prompt, user_message, model, max_tokens) -> str:
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key="ollama", base_url=f"{settings.ollama_base_url}/v1")
-    response = await client.chat.completions.create(
-        model=model, max_tokens=max_tokens,
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-    )
-    return response.choices[0].message.content
+async def call_llm(
+    messages: list[dict],
+    temperature: float = 0.1,
+    max_tokens: int = 4096,
+    response_format: Optional[dict] = None,
+) -> str:
+    """
+    Unified LLM call across all providers.
+    Agents call this — never the provider SDK directly.
 
-async def _call_azure(system_prompt, user_message, max_tokens, temperature) -> str:
-    from openai import AsyncAzureOpenAI
-    client = AsyncAzureOpenAI(
-        api_key=settings.azure_openai_api_key,
-        azure_endpoint=settings.azure_openai_endpoint,
-        api_version="2024-02-01",
-    )
-    response = await client.chat.completions.create(
-        model=settings.azure_openai_deployment, max_tokens=max_tokens, temperature=temperature,
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-    )
-    return response.choices[0].message.content
+    Usage:
+        result = await call_llm([
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ])
+    """
+    provider = settings.llm_provider.lower()
+    client = get_llm_client()
+    model = get_model_name()
 
-async def _call_modal(system_prompt, user_message, max_tokens) -> str:
-    from openai import AsyncOpenAI
-    client = AsyncOpenAI(api_key="modal", base_url=settings.modal_llm_url)
-    response = await client.chat.completions.create(
-        model="served-model", max_tokens=max_tokens,
-        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-    )
-    return response.choices[0].message.content
+    if provider == "anthropic":
+        system_msg = next((m["content"] for m in messages if m["role"] == "system"), None)
+        user_msgs = [m for m in messages if m["role"] != "system"]
+        resp = await client.messages.create(
+            model=model, max_tokens=max_tokens,
+            system=system_msg or "You are a helpful assistant.",
+            messages=user_msgs,
+        )
+        return resp.content[0].text
+    else:
+        kwargs = {"model": model, "max_tokens": max_tokens, "temperature": temperature, "messages": messages}
+        if response_format and provider in ("openai", "openrouter", "azure"):
+            kwargs["response_format"] = response_format
+        resp = await client.chat.completions.create(**kwargs)
+        return resp.choices[0].message.content
 ```
 
 ### `app/providers/embedding.py`
@@ -966,6 +997,45 @@ volumes:
   # qdrant_data:
 ```
 
+### `.gitignore`
+```
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Env
+.env
+.env.local
+.env*.local
+
+# Secrets / local state — never commit
+*.smoke_test_state.json
+SESSION_PLAN.md
+
+# Test data (large PDFs, sample documents — store in shared drive instead)
+data/documents/
+
+# Node
+node_modules/
+.next/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+```
+
 ### `.github/workflows/ci.yml`
 ```yaml
 name: CI
@@ -1458,6 +1528,160 @@ class GroundedFact(BaseModel):
     grounding_quote: str  # must appear verbatim in source — never paraphrased
     source_chunk_id: str | None = None
     confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
+```
+
+### `app/prompts/__init__.py`
+Empty file.
+
+### `app/prompts/registry.py`
+Prompt registry — load from LangSmith Hub (if key set) with local YAML fallback.
+Agents call `get_prompt(name, **vars)` — never hardcode prompt strings in agent files.
+```python
+"""
+Load order:
+  1. LangSmith Hub  (if LANGSMITH_API_KEY is set and network is reachable)
+  2. Local YAML fallback in app/prompts/
+
+Call get_prompt(name, **vars) — returns the filled prompt string ready for call_llm().
+"""
+from __future__ import annotations
+import os
+from functools import lru_cache
+from pathlib import Path
+import yaml
+
+_PROMPTS_DIR = Path(__file__).parent
+
+# Map short names → (langsmith_identifier, local_yaml_file)
+_REGISTRY: dict[str, tuple[str, str]] = {
+    # Example entries — add your prompts here:
+    # "setup/extract_rfp":    ("setup-extract-rfp",    "setup/extract_rfp.yaml"),
+}
+
+_cache: dict[str, str] = {}
+
+
+@lru_cache(maxsize=1)
+def _langsmith_available() -> bool:
+    if not os.getenv("LANGSMITH_API_KEY"):
+        return False
+    try:
+        from langsmith import Client
+        Client().list_prompts(limit=1)
+        return True
+    except Exception:
+        return False
+
+
+def _load_from_langsmith(identifier: str) -> str | None:
+    try:
+        from langsmith import Client
+        prompt_obj = Client().pull_prompt(identifier)
+        if hasattr(prompt_obj, "template"):
+            return prompt_obj.template
+        if hasattr(prompt_obj, "messages"):
+            for msg in prompt_obj.messages:
+                if hasattr(msg, "prompt") and hasattr(msg.prompt, "template"):
+                    return msg.prompt.template
+        return str(prompt_obj)
+    except Exception:
+        return None
+
+
+def _load_from_yaml(yaml_file: str) -> str:
+    path = _PROMPTS_DIR / yaml_file
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data["template"]
+
+
+def get_prompt(name: str, **variables: str) -> str:
+    """Returns the filled prompt string for the given name."""
+    if name not in _REGISTRY:
+        raise KeyError(f"Unknown prompt: {name!r}. Available: {list(_REGISTRY)}")
+
+    if name not in _cache:
+        langsmith_id, yaml_file = _REGISTRY[name]
+        if _langsmith_available():
+            template = _load_from_langsmith(langsmith_id)
+            if template:
+                _cache[name] = template
+        if name not in _cache:
+            _cache[name] = _load_from_yaml(yaml_file)
+
+    template = _cache[name]
+    for key, value in variables.items():
+        template = template.replace("{" + key + "}", str(value))
+    return template
+```
+
+### `tools/push_prompts.py`
+Push local YAML prompts to LangSmith Hub. Run after editing any `.yaml` in `app/prompts/`.
+
+**Note on Windows / corporate SSL:** Many corp networks use TLS inspection that causes SSL errors
+with LangSmith. Set `SSL_VERIFY=false` in `.env` to skip verification only in dev — never in prod.
+```python
+"""
+Push all YAML prompts in app/prompts/ to LangSmith Hub.
+
+Usage:
+    python tools/push_prompts.py
+
+Requires LANGSMITH_API_KEY in .env. Set SSL_VERIFY=false if behind a corporate proxy.
+"""
+import os
+import sys
+from pathlib import Path
+import yaml
+
+# Load .env early so LANGSMITH_API_KEY is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+PROMPTS_DIR = Path(__file__).parent.parent / "app" / "prompts"
+
+# SSL workaround for Windows corporate proxies with TLS inspection
+if os.getenv("SSL_VERIFY", "true").lower() == "false":
+    import ssl
+    import urllib.request
+    ssl._create_default_https_context = ssl._create_unverified_context
+    os.environ["CURL_CA_BUNDLE"] = ""
+    os.environ["REQUESTS_CA_BUNDLE"] = ""
+
+def push_prompts():
+    api_key = os.getenv("LANGSMITH_API_KEY")
+    if not api_key:
+        print("ERROR: LANGSMITH_API_KEY not set in .env")
+        sys.exit(1)
+
+    from langsmith import Client
+    client = Client()
+
+    yaml_files = list(PROMPTS_DIR.rglob("*.yaml"))
+    if not yaml_files:
+        print("No YAML prompt files found in app/prompts/")
+        return
+
+    for path in yaml_files:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        name = data.get("name") or path.stem.replace("_", "-")
+        template = data.get("template", "")
+
+        try:
+            from langchain_core.prompts import PromptTemplate
+            prompt = PromptTemplate.from_template(template)
+            client.push_prompt(name, object=prompt)
+            print(f"  ✅ pushed: {name}")
+        except Exception as e:
+            print(f"  ❌ failed: {name} — {e}")
+
+if __name__ == "__main__":
+    push_prompts()
 ```
 
 ### `deploy/modal.py`
@@ -2555,9 +2779,11 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
   app/providers/  LLM + embeddings (swap via .env)
   app/infra/      circuit breaker, rate limiter, cost tracker
   app/schemas/    Pydantic output models      [AI apps only]
+  app/prompts/    LangSmith YAML prompts + registry.py  [AI apps only]
   deploy/         Modal GPU deployment        [AI apps only]
   tests/unit/     fast, no I/O
   tests/integration/  needs DB + services
+  tools/          build quality: smoke_test, checkpoint_runner, push_prompts
   scripts/        ops only (seed, reset) — never test code here
 
 ── MCP servers ─────────────────────────────
@@ -2589,6 +2815,8 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
   ✅ pyproject.toml — ruff + pytest config
   ✅ .pre-commit-config.yaml — ruff + secret scanner
   ✅ tests/unit/, tests/integration/, tests/fixtures/ — structured from day one
+  ✅ tools/push_prompts.py — LangSmith prompt push with Windows SSL workaround [AI apps only]
+  ✅ app/prompts/registry.py — load from LangSmith Hub with local YAML fallback [AI apps only]
   ✅ Frontend: ErrorBoundary, EmptyState, SkeletonLoader, AuthGuard
   ✅ MCP servers for DB + API
   ✅ CLAUDE.md with import rules + package structure
