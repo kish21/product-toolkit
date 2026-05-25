@@ -1281,6 +1281,36 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
 }
 ```
 
+### `frontend/components/ui/ErrorBanner.tsx`
+```tsx
+import { FONT } from "@/lib/theme";
+
+export function ErrorBanner({ message }: { message: string }) {
+  return (
+    <div
+      role="alert"
+      style={{
+        marginBottom: 20,
+        padding: "10px 14px",
+        backgroundColor: "color-mix(in srgb, var(--color-error) 10%, transparent)",
+        borderTop: "none",
+        borderBottom: "none",
+        borderRight: "none",
+        borderLeft: "2px solid var(--color-error)",
+        borderRadius: "0 4px 4px 0",
+        fontFamily: FONT,
+        fontWeight: 500,
+        fontSize: 13,
+        color: "var(--color-error)",
+        lineHeight: 1.5,
+      }}
+    >
+      {message}
+    </div>
+  );
+}
+```
+
 ---
 
 ### `prometheus.yml`
@@ -1874,6 +1904,23 @@ lib/utils.ts         ← cn(), formatDate()
 - All API calls use lib/api.ts — never raw fetch() in components
 - components/ui/ are pure primitives — no API calls, no router, no auth
 - Every input must have a label with htmlFor
+
+## TYPESCRIPT TYPE RULES — SINGLE SOURCE OF TRUTH
+1. Any interface used by 2+ files → lives in `types.ts`, never duplicated
+2. Feature modules with 2+ sub-components get a `_components/` folder containing:
+   - `types.ts`   — all shared interfaces and union types
+   - `styles.ts`  — style objects and style helper functions
+   - `helpers.ts` — pure utility functions (no JSX)
+3. Union types / type aliases → `types.ts` only, never inside `styles.ts` or `helpers.ts`
+4. No workaround types (duck types, partial re-definitions) — fix the import graph instead
+
+## DRY RULES
+- Any React component used in 2+ files → extract to shared file before copy-pasting
+- Small shared UI helpers (ErrorBanner, Spinner, LoadingState) → `components/ui/`, never inlined
+
+## KNOWN FIXES — DO NOT REVERT
+(Record discovered bugs and fixed patterns here so they are never accidentally reverted.
+Format: what was wrong → what the fix is → which files it applies to.)
 ```
 ```
 
@@ -2358,6 +2405,23 @@ src/types/               ← shared TypeScript interfaces
 - src/components/ui/ are pure primitives — no router imports, no API calls
 - CSS custom properties only — never raw hex in components
 - Every input must have a label with htmlFor
+
+## TYPESCRIPT TYPE RULES — SINGLE SOURCE OF TRUTH
+1. Any interface used by 2+ files → lives in `types.ts`, never duplicated
+2. Feature modules with 2+ sub-components get a `_components/` folder containing:
+   - `types.ts`   — all shared interfaces and union types
+   - `styles.ts`  — style objects and style helper functions
+   - `helpers.ts` — pure utility functions (no JSX)
+3. Union types / type aliases → `types.ts` only, never inside `styles.ts` or `helpers.ts`
+4. No workaround types (duck types, partial re-definitions) — fix the import graph instead
+
+## DRY RULES
+- Any React component used in 2+ files → extract to shared file before copy-pasting
+- Small shared UI helpers (ErrorBanner, Spinner, LoadingState) → `src/components/ui/`, never inlined
+
+## KNOWN FIXES — DO NOT REVERT
+(Record discovered bugs and fixed patterns here so they are never accidentally reverted.
+Format: what was wrong → what the fix is → which files it applies to.)
 ```
 ```
 
@@ -2405,6 +2469,15 @@ app/
 - Agents call `call_llm()` from `app.providers.llm` — never import openai/anthropic directly
 - Never create `app/core/` — it becomes a dumping ground
 
+## TYPESCRIPT TYPE RULES — SINGLE SOURCE OF TRUTH
+1. Any interface used by 2+ files → lives in `types.ts`, never duplicated
+2. Feature modules with 2+ sub-components get a `_components/` folder containing:
+   - `types.ts`   — all shared interfaces and union types
+   - `styles.ts`  — style objects and style helper functions
+   - `helpers.ts` — pure utility functions (no JSX)
+3. Union types / type aliases → `types.ts` only, never inside `styles.ts` or `helpers.ts`
+4. No workaround types (duck types, partial re-definitions) — fix the import graph instead
+
 ## COMPONENT CONTRACTS
 1. CORS locked to ALLOWED_ORIGINS env var — never "*"
 2. Rate limiting is per-org — never a global singleton
@@ -2412,10 +2485,16 @@ app/
 4. SQL queries parameterized — never f-string SQL
 5. Frontend: CSS vars only — never raw hex colours
 6. Agent outputs are Pydantic models — never raw text between agents
+7. Any React component used in 2+ files → extract to shared file before copy-pasting
+8. Small shared UI helpers (ErrorBanner, Spinner, LoadingState) → `components/ui/`, never inlined
 
 ## SCOPE RULES
 **Allowed:** Build features, fix bugs, write tests
 **Ask first:** Installing new packages, changing DB schema, modifying auth
+
+## KNOWN FIXES — DO NOT REVERT
+(Record discovered bugs and fixed patterns here so they are never accidentally reverted.
+Format: what was wrong → what the fix is → which files it applies to.)
 ```
 
 ---
