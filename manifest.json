@@ -17,7 +17,20 @@
       "id": "new-project",
       "category": "scaffolding",
       "purpose": "Scaffold a complete production-ready project foundation",
-      "file": "commands/new-project.md"
+      "form": "directory",
+      "file": "commands/new-project/SKILL.md",
+      "references": [
+        "commands/new-project/references/backend-fastapi.md",
+        "commands/new-project/references/frontend-nextjs.md",
+        "commands/new-project/references/frontend-react-vite.md",
+        "commands/new-project/references/claude-md-fullstack.md",
+        "commands/new-project/references/optional-features.md"
+      ],
+      "supports": {
+        "app_types": ["SaaS", "AI + SaaS", "Internal tool", "API only"],
+        "stacks": ["Full stack (FastAPI + Next.js)", "Backend only (FastAPI)", "Frontend only (Next.js)", "Frontend only (React + Vite)"],
+        "optional": ["Stripe billing", "AI + SaaS (Qdrant, prompts, Modal)"]
+      }
     },
     {
       "id": "enterprise-ai-audit",

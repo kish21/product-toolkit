@@ -1,0 +1,243 @@
+# References - optional backend features
+
+Loaded by the orchestrator when the user opted into one of these:
+- **Billing = Yes** -> emit the billing section below
+- **App type = AI + SaaS** -> emit the AI/SaaS section (schemas, prompts, Modal)
+
+---
+
+### ALSO CREATE IF BILLING=YES
+
+### `app/api/billing_routes.py`
+```python
+from fastapi import APIRouter, Request, HTTPException
+from app.config import settings
+import stripe
+
+router = APIRouter()
+stripe.api_key = settings.stripe_secret_key
+
+@router.post("/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig = request.headers.get("stripe-signature")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, settings.stripe_webhook_secret)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    if event["type"] == "customer.subscription.created":
+        pass  # TODO: update org plan in DB
+    elif event["type"] == "customer.subscription.deleted":
+        pass  # TODO: downgrade org to free tier
+
+    return {"status": "ok"}
+```
+
+---
+
+### ALSO CREATE IF AI + SaaS
+
+### `app/schemas/__init__.py`
+Empty file.
+
+### `app/schemas/output_models.py`
+Base Pydantic output models — all agent outputs extend these.
+```python
+from pydantic import BaseModel, Field
+from enum import Enum
+
+class ConfidenceLevel(str, Enum):
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+class AgentOutput(BaseModel):
+    """Base class for all agent outputs. Never pass raw text between agents."""
+    agent_name: str
+    confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
+    warnings: list[str] = Field(default_factory=list)
+
+class GroundedFact(BaseModel):
+    """A fact with a verbatim quote from the source document."""
+    value: str
+    grounding_quote: str  # must appear verbatim in source — never paraphrased
+    source_chunk_id: str | None = None
+    confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
+```
+
+### `app/prompts/__init__.py`
+Empty file.
+
+### `app/prompts/registry.py`
+Prompt registry — load from LangSmith Hub (if key set) with local YAML fallback.
+Agents call `get_prompt(name, **vars)` — never hardcode prompt strings in agent files.
+```python
+"""
+Load order:
+  1. LangSmith Hub  (if LANGSMITH_API_KEY is set and network is reachable)
+  2. Local YAML fallback in app/prompts/
+
+Call get_prompt(name, **vars) — returns the filled prompt string ready for call_llm().
+"""
+from __future__ import annotations
+import os
+from functools import lru_cache
+from pathlib import Path
+import yaml
+
+_PROMPTS_DIR = Path(__file__).parent
+
+# Map short names → (langsmith_identifier, local_yaml_file)
+_REGISTRY: dict[str, tuple[str, str]] = {
+    # Example entries — add your prompts here:
+    # "setup/extract_rfp":    ("setup-extract-rfp",    "setup/extract_rfp.yaml"),
+}
+
+_cache: dict[str, str] = {}
+
+
+@lru_cache(maxsize=1)
+def _langsmith_available() -> bool:
+    if not os.getenv("LANGSMITH_API_KEY"):
+        return False
+    try:
+        from langsmith import Client
+        Client().list_prompts(limit=1)
+        return True
+    except Exception:
+        return False
+
+
+def _load_from_langsmith(identifier: str) -> str | None:
+    try:
+        from langsmith import Client
+        prompt_obj = Client().pull_prompt(identifier)
+        if hasattr(prompt_obj, "template"):
+            return prompt_obj.template
+        if hasattr(prompt_obj, "messages"):
+            for msg in prompt_obj.messages:
+                if hasattr(msg, "prompt") and hasattr(msg.prompt, "template"):
+                    return msg.prompt.template
+        return str(prompt_obj)
+    except Exception:
+        return None
+
+
+def _load_from_yaml(yaml_file: str) -> str:
+    path = _PROMPTS_DIR / yaml_file
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data["template"]
+
+
+def get_prompt(name: str, **variables: str) -> str:
+    """Returns the filled prompt string for the given name."""
+    if name not in _REGISTRY:
+        raise KeyError(f"Unknown prompt: {name!r}. Available: {list(_REGISTRY)}")
+
+    if name not in _cache:
+        langsmith_id, yaml_file = _REGISTRY[name]
+        if _langsmith_available():
+            template = _load_from_langsmith(langsmith_id)
+            if template:
+                _cache[name] = template
+        if name not in _cache:
+            _cache[name] = _load_from_yaml(yaml_file)
+
+    template = _cache[name]
+    for key, value in variables.items():
+        template = template.replace("{" + key + "}", str(value))
+    return template
+```
+
+### `tools/push_prompts.py`
+Push local YAML prompts to LangSmith Hub. Run after editing any `.yaml` in `app/prompts/`.
+
+**Note on Windows / corporate SSL:** Many corp networks use TLS inspection that causes SSL errors
+with LangSmith. Set `SSL_VERIFY=false` in `.env` to skip verification only in dev — never in prod.
+```python
+"""
+Push all YAML prompts in app/prompts/ to LangSmith Hub.
+
+Usage:
+    python tools/push_prompts.py
+
+Requires LANGSMITH_API_KEY in .env. Set SSL_VERIFY=false if behind a corporate proxy.
+"""
+import os
+import sys
+from pathlib import Path
+import yaml
+
+# Load .env early so LANGSMITH_API_KEY is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+PROMPTS_DIR = Path(__file__).parent.parent / "app" / "prompts"
+
+# SSL workaround for Windows corporate proxies with TLS inspection
+if os.getenv("SSL_VERIFY", "true").lower() == "false":
+    import ssl
+    import urllib.request
+    ssl._create_default_https_context = ssl._create_unverified_context
+    os.environ["CURL_CA_BUNDLE"] = ""
+    os.environ["REQUESTS_CA_BUNDLE"] = ""
+
+def push_prompts():
+    api_key = os.getenv("LANGSMITH_API_KEY")
+    if not api_key:
+        print("ERROR: LANGSMITH_API_KEY not set in .env")
+        sys.exit(1)
+
+    from langsmith import Client
+    client = Client()
+
+    yaml_files = list(PROMPTS_DIR.rglob("*.yaml"))
+    if not yaml_files:
+        print("No YAML prompt files found in app/prompts/")
+        return
+
+    for path in yaml_files:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        name = data.get("name") or path.stem.replace("_", "-")
+        template = data.get("template", "")
+
+        try:
+            from langchain_core.prompts import PromptTemplate
+            prompt = PromptTemplate.from_template(template)
+            client.push_prompt(name, object=prompt)
+            print(f"  ✅ pushed: {name}")
+        except Exception as e:
+            print(f"  ❌ failed: {name} — {e}")
+
+if __name__ == "__main__":
+    push_prompts()
+```
+
+### `deploy/modal.py`
+```python
+"""
+Modal deployment — GPU inference, batch embeddings, scheduled jobs.
+Deploy: modal deploy deploy/modal.py
+"""
+import modal
+
+app = modal.App("app-name")
+image = modal.Image.debian_slim().pip_install_from_requirements("requirements.txt")
+
+@app.function(image=image, schedule=modal.Cron("0 2 * * *"))
+def daily_cleanup():
+    from app.jobs.cleanup import cleanup_old_records
+    cleanup_old_records()
+```
+
+---
+

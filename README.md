@@ -33,7 +33,7 @@ cd ~/product-toolkit && git pull && cp commands/*.md ~/.claude/commands/
 
 | Skill | When to invoke | What it outputs | Lives in |
 |---|---|---|---|
-| **`/new-project`** | Starting a fresh project; user says "scaffold a new app" | Complete project scaffold — LLM abstraction, auth, security, CI/CD, frontend skeleton, CLAUDE.md. Asks 3-5 questions first. | `commands/new-project.md` |
+| **`/new-project`** | Starting a fresh project; user says "scaffold a new app" | Complete project scaffold — LLM abstraction, auth, security, CI/CD, frontend skeleton, CLAUDE.md. Asks 4 questions first. **Supports:** SaaS / AI+SaaS / Internal tool / API-only × Full stack / Backend only / Frontend only (Next.js OR React+Vite) + optional Stripe billing. | `commands/new-project/` (directory: slim SKILL.md + 5 references — see below) |
 | **`/enterprise-ai-audit`** | "Are we production ready?", "what are we missing?" — pre-launch health check on any AI project | 8-category score card (LLM abstraction, security, testing, deployment, observability, frontend, cost, Claude bonus features) + auto-creates missing boilerplate | `commands/enterprise-ai-audit.md` |
 | **`/phase-done`** | After every phase commit, **before push** — end-of-phase quality gate | 11-category report (code quality, architecture, hygiene, docs, memory writes, feature suggestions, pre-push hygiene, deferred work, branch freshness, CI parity, PR pre-creation audit) + `READY TO PUSH` / `FIX FIRST` / `REVIEW WARNINGS` | `commands/phase-done.md` |
 | **`/doc-audit`** | "Are our docs current?", "would a CTO trust this README?" | Per-doc grade table (currency / honesty / jargon / evidence / tone) × 4 audiences (buyer / CTO / investor / technical reviewer) + gap list + `READY` / `REFRESH` / `REGENERATE` recommendation. `--fix` opens refresh PR. | `commands/doc-audit.md` |
@@ -46,6 +46,49 @@ cd ~/product-toolkit && git pull && cp commands/*.md ~/.claude/commands/
 | **`/github-pr-flow`** | Pushing to a protected main/master branch | Branch creation, PR with proper title/body, CI failure handling, merge conflict resolution | `commands/github-pr-flow.md` |
 | **`/mcp-builder`** | Connecting Claude Code to an external service via MCP | High-quality MCP server (Python FastMCP or TypeScript MCP SDK) with proper tool design | `commands/mcp-builder.md` |
 | **`/skill-creator`** | Building a new skill, improving an existing skill, or running skill evaluations | New / improved skill file in `~/.claude/commands/` + eval workspace + benchmark | `commands/skill-creator.md` |
+
+### `/new-project` — what it actually scaffolds (read this if you're new to web apps)
+
+`/new-project` asks **4 short questions** and routes you down one of these paths. Each option has a "pick this if…" rationale so you can choose with confidence.
+
+#### Question 1 — what ARE you building?
+
+| Choice | Pick this if… | Adds to the scaffold |
+|---|---|---|
+| **SaaS** | Multiple companies/teams sign up, each with their own users and data (Slack, Linear, Stripe Dashboard) | org/users tables, RBAC roles, multi-tenant scoping everywhere |
+| **AI + SaaS** | Same as SaaS but with an AI feature — chatbot grounded in user docs, document evaluator, writing assistant | Above + Qdrant vector DB + agent scaffolding + LangSmith prompt registry + Modal deploy config |
+| **Internal tool** | One company only — your team, ops, or admin dashboard. No paying customers | Drops billing + multi-tenant complexity |
+| **API only** | A backend that someone else's frontend will call (mobile, public API, integration service) | No frontend scaffolded at all |
+
+#### Question 3 — payments from day one?
+
+| Choice | Pick this if… | Adds |
+|---|---|---|
+| **Yes** | You'll have paying customers from launch | Stripe webhook + subscription check on protected endpoints |
+| **No** | Pre-revenue or internal-only | Skipped (easy to add later) |
+
+#### Question 4 — what needs scaffolding?
+
+| Choice | Pick this if… | What gets created |
+|---|---|---|
+| **Full stack** | Building a complete product end-to-end | Backend (FastAPI) + Frontend (Next.js) + CI/CD for both |
+| **Backend only** | No web UI in this codebase | Just FastAPI — no frontend files |
+| **Frontend only → Next.js** | You already have a backend (Supabase, Firebase, existing API) AND SEO matters | Next.js standalone project |
+| **Frontend only → React + Vite** | Same as above but SEO doesn't matter (admin dashboard, internal tool) | React + Vite SPA |
+
+#### Why the skill is split into 5 reference files
+
+`/new-project` used to be one 2,926-line file — every invocation paid the cost of loading Python templates even when you picked "Frontend only". Now the slim orchestrator (~345 lines) loads ONLY the references your answers need:
+
+| Your choice | References loaded |
+|---|---|
+| Full stack | `backend-fastapi.md` + `frontend-nextjs.md` + `claude-md-fullstack.md` |
+| Backend only | `backend-fastapi.md` only |
+| Frontend only → Next.js | `frontend-nextjs.md` only |
+| Frontend only → React + Vite | `frontend-react-vite.md` only |
+| + Billing or AI+SaaS (any) | + `optional-features.md` |
+
+Smaller context = faster + cheaper invocations + clearer maintenance.
 
 ### How they compose
 
