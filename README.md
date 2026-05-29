@@ -1,105 +1,120 @@
 # product-toolkit
 
-Personal Claude Code skills library — reusable slash commands for building production-grade products.
+> Personal Claude Code skills library — reusable slash commands for shipping production-grade products fast.
 
-## What this is
+**13 skills**, installable in any project, refined from real shipping work on the [agenticRag-rfp](https://github.com/kish21/agenticRag-rfp) project.
 
-A collection of `/skills` that work globally across every project. Run any of these in any Claude Code session by typing the command name.
+---
 
-## Setup (new machine)
+## Install (one line)
 
 ```bash
-git clone https://github.com/kish21/product-toolkit
-cp product-toolkit/commands/*.md ~/.claude/commands/
+curl -fsSL https://raw.githubusercontent.com/kish21/product-toolkit/master/install.sh | bash
 ```
 
-That's it. All skills are immediately available in every project.
+That copies every `.md` from `commands/` into `~/.claude/commands/`. Every skill becomes available globally as a slash command in any Claude Code session — **no per-project setup**.
+
+### Or install manually
+
+```bash
+git clone https://github.com/kish21/product-toolkit ~/product-toolkit
+cp ~/product-toolkit/commands/*.md ~/.claude/commands/
+```
+
+### Sync after the toolkit updates
+
+```bash
+cd ~/product-toolkit && git pull && cp commands/*.md ~/.claude/commands/
+```
 
 ---
 
-## Skills
+## Skill catalogue
 
-### `/enterprise-ai-audit`
-Audits any AI project for production readiness gaps across 8 categories (LLM abstraction, security, testing, deployment, observability, frontend, cost controls). Prints a score card and auto-fixes missing patterns. Also shows Claude-specific bonus features (prompt caching, extended thinking) in a separate section.
+| Skill | When to invoke | What it outputs | Lives in |
+|---|---|---|---|
+| **`/new-project`** | Starting a fresh project; user says "scaffold a new app" | Complete project scaffold — LLM abstraction, auth, security, CI/CD, frontend skeleton, CLAUDE.md. Asks 3-5 questions first. | `commands/new-project.md` |
+| **`/enterprise-ai-audit`** | "Are we production ready?", "what are we missing?" — pre-launch health check on any AI project | 8-category score card (LLM abstraction, security, testing, deployment, observability, frontend, cost, Claude bonus features) + auto-creates missing boilerplate | `commands/enterprise-ai-audit.md` |
+| **`/phase-done`** | After every phase commit, **before push** — end-of-phase quality gate | 11-category report (code quality, architecture, hygiene, docs, memory writes, feature suggestions, pre-push hygiene, deferred work, branch freshness, CI parity, PR pre-creation audit) + `READY TO PUSH` / `FIX FIRST` / `REVIEW WARNINGS` | `commands/phase-done.md` |
+| **`/doc-audit`** | "Are our docs current?", "would a CTO trust this README?" | Per-doc grade table (currency / honesty / jargon / evidence / tone) × 4 audiences (buyer / CTO / investor / technical reviewer) + gap list + `READY` / `REFRESH` / `REGENERATE` recommendation. `--fix` opens refresh PR. | `commands/doc-audit.md` |
+| **`/doc-create`** | When `/doc-audit` flags a MISSING category, or "we should write a SECURITY.md" | ONE new doc grounded in actual code state (not generic templates). Catalogue: architecture, security, runbook, roadmap, competitive, personas, business-case, sla, performance, decisions, migrations, contributing, changelog, readme | `commands/doc-create.md` |
+| **`/frontend-design`** | Building any page, dashboard, or UI section from scratch | Design proposal + production-grade frontend code that avoids generic AI aesthetics (typography, depth/shadow, anti-template guardrails) | `commands/frontend-design.md` |
+| **`/new-component`** | Building any single React component (button, card, form, modal, table) | Component file enforcing CSS variables only, full interactive states (hover/focus/active), accessibility, design system constraints | `commands/new-component.md` |
+| **`/anti-ai-ui`** | Before delivering ANY frontend work — final UI check | 12-tell audit (flat shadows, uniform font weights, generic blue palette, missing states, etc.) + flag/fix anything template-generated | `commands/anti-ai-ui.md` |
+| **`/theme-factory`** | Styling any visual artifact (slides, HTML pages, reports) | Themed output via pre-set themes or generated custom themes | `commands/theme-factory.md` |
+| **`/web-artifacts-builder`** | Complex multi-component HTML artifact (state management, routing, component library) | React + Tailwind + shadcn/ui artifact with the right structure | `commands/web-artifacts-builder.md` |
+| **`/github-pr-flow`** | Pushing to a protected main/master branch | Branch creation, PR with proper title/body, CI failure handling, merge conflict resolution | `commands/github-pr-flow.md` |
+| **`/mcp-builder`** | Connecting Claude Code to an external service via MCP | High-quality MCP server (Python FastMCP or TypeScript MCP SDK) with proper tool design | `commands/mcp-builder.md` |
+| **`/skill-creator`** | Building a new skill, improving an existing skill, or running skill evaluations | New / improved skill file in `~/.claude/commands/` + eval workspace + benchmark | `commands/skill-creator.md` |
 
-**Run when:** Starting a new AI project health check, or before shipping to first customer.
+### How they compose
 
----
+```
+NEW PROJECT FLOW
+    /new-project   ➜  scaffold full project
+        ➜  /enterprise-ai-audit  ➜  verify all 8 categories covered
 
-### `/new-component`
-Creates a React component following the design system rules — CSS variables only, loading states, hover/focus/active states, accessibility labels.
+DOC QUALITY LOOP
+    /doc-audit          ➜  diagnose existing docs
+    /doc-audit --fix    ➜  refresh existing docs
+    /doc-create         ➜  scaffold missing docs (one per call)
 
-**Run when:** Building any UI component.
+UI WORKFLOW
+    /frontend-design    ➜  layout + design proposal
+    /new-component      ➜  individual components
+    /anti-ai-ui         ➜  final audit before delivery
 
----
+SHIPPING FLOW
+    /phase-done         ➜  pre-push quality gate
+    /github-pr-flow     ➜  branch → PR → CI → merge
 
-### `/frontend-design`
-Builds production-grade frontend interfaces avoiding generic AI aesthetics. Enforces typography rules, depth/shadow system, and anti-generic design guardrails.
-
-**Run when:** Building any page, dashboard, or UI section from scratch.
-
----
-
-### `/anti-ai-ui`
-Audits finished UI against 12 "AI tell" checks — flat shadows, same font weights, generic blue colors, missing interactive states, etc. Flags and fixes anything that looks template-generated.
-
-**Run when:** Before delivering any UI work.
-
----
-
-### `/github-pr-flow`
-Handles the full GitHub workflow — branch naming, PR creation, CI failure handling, merge conflict resolution, branch protection.
-
-**Run when:** Pushing code to a protected main/master branch.
-
----
-
-### `/mcp-builder`
-Guides building MCP servers that connect Claude Code to external services (databases, APIs, tools). Covers both Python (FastMCP) and TypeScript (MCP SDK).
-
-**Run when:** Building an MCP server to give Claude Code direct access to a tool or API.
-
----
-
-### `/theme-factory`
-Applies visual themes (colors, fonts, spacing) to any artifact — slides, HTML pages, reports, UI components.
-
-**Run when:** Styling any visual output.
+EXTENDING
+    /skill-creator      ➜  build new skills or improve existing
+    /mcp-builder        ➜  add tool integrations
+    /theme-factory      ➜  style any visual artifact
+```
 
 ---
 
-### `/web-artifacts-builder`
-Builds complex multi-component HTML artifacts using React, Tailwind CSS, and shadcn/ui — with state management, routing, and component libraries.
+## Distribution & plugin status
 
-**Run when:** Building a complex interactive artifact that needs multiple components.
+Claude Code's plugin marketplace is still evolving. **As of 2026-05-29, the canonical install path is to drop `.md` files into `~/.claude/commands/`** — which is what `install.sh` does for you.
 
----
+The repo is **structurally plugin-ready**:
 
-### `/skill-creator`
-Creates new skills, improves existing ones, runs evaluations to test quality, benchmarks performance, and optimizes trigger descriptions.
+- Each skill is a self-contained file with YAML frontmatter (`name`, `description`)
+- `install.sh` provides a one-line bootstrap
+- `manifest.json` declares the toolkit contents in a forward-compatible format so when Anthropic ships an official plugin manifest standard, the upgrade is mechanical
 
-**Run when:** Building a new skill or improving an existing one.
+**Want to ship this as a plugin to your team?** Fork the repo; everyone runs the one-line installer. That's the distribution model that works today.
 
 ---
 
 ## Adding a new skill
 
-1. Create `commands/your-skill-name.md`
-2. Copy to `~/.claude/commands/your-skill-name.md`
-3. Commit and push
-
 ```bash
+# 1. Create the skill
+vim commands/your-skill-name.md
+
+# 2. Install locally + add to git
 cp commands/your-skill-name.md ~/.claude/commands/
-git add commands/your-skill-name.md
-git commit -m "feat: add your-skill-name skill"
+git add commands/your-skill-name.md README.md manifest.json
+git commit -m "feat: add /your-skill-name skill"
 git push
 ```
 
+Update this README's catalogue table AND `manifest.json`'s `commands` list when you add a skill.
+
 ---
 
-## Sync after pulling updates
+## Provenance
 
-```bash
-git pull
-cp commands/*.md ~/.claude/commands/
-```
+Each skill in this toolkit was hardened on a real project before landing here. The provenance is preserved in the skill file's footnote section. Notable origins:
+
+- `/phase-done` — distilled from the agenticRag-rfp project after PR #150 surfaced 3 systemic bug classes (branch drift, CI parity gaps, PR metadata overwrites)
+- `/doc-audit` + `/doc-create` — created on agenticRag-rfp on 2026-05-29 after a reviewer-feedback round revealed several docs had drifted from master
+- `/new-project` — refined through 5 patches from agenticRag-rfp build learnings
+
+---
+
+**License:** MIT (do whatever you want with these skills) · **Author:** [@kish21](https://github.com/kish21)
