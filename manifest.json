@@ -1,0 +1,104 @@
+{
+  "name": "product-toolkit",
+  "version": "1.0.0",
+  "description": "Personal Claude Code skills library — reusable slash commands for shipping production-grade products fast.",
+  "author": "kish21",
+  "license": "MIT",
+  "homepage": "https://github.com/kish21/product-toolkit",
+  "kind": "claude-code-skills-collection",
+  "install": {
+    "method": "copy",
+    "from": "commands/*.md",
+    "to": "~/.claude/commands/",
+    "one_liner": "curl -fsSL https://raw.githubusercontent.com/kish21/product-toolkit/master/install.sh | bash"
+  },
+  "commands": [
+    {
+      "id": "new-project",
+      "category": "scaffolding",
+      "purpose": "Scaffold a complete production-ready project foundation",
+      "file": "commands/new-project.md"
+    },
+    {
+      "id": "enterprise-ai-audit",
+      "category": "quality",
+      "purpose": "Audit any AI project for production readiness across 8 categories",
+      "file": "commands/enterprise-ai-audit.md"
+    },
+    {
+      "id": "phase-done",
+      "category": "quality",
+      "purpose": "End-of-phase quality gate before pushing to remote",
+      "file": "commands/phase-done.md"
+    },
+    {
+      "id": "doc-audit",
+      "category": "docs",
+      "purpose": "Grade existing docs against the bar an external reader would actually apply",
+      "file": "commands/doc-audit.md"
+    },
+    {
+      "id": "doc-create",
+      "category": "docs",
+      "purpose": "Scaffold ONE new doc grounded in actual code state",
+      "file": "commands/doc-create.md"
+    },
+    {
+      "id": "frontend-design",
+      "category": "frontend",
+      "purpose": "Build production-grade frontend interfaces avoiding generic AI aesthetics",
+      "file": "commands/frontend-design.md"
+    },
+    {
+      "id": "new-component",
+      "category": "frontend",
+      "purpose": "Create a React component following design system rules",
+      "file": "commands/new-component.md"
+    },
+    {
+      "id": "anti-ai-ui",
+      "category": "frontend",
+      "purpose": "Audit finished UI against 12 AI-tell checks before delivery",
+      "file": "commands/anti-ai-ui.md"
+    },
+    {
+      "id": "theme-factory",
+      "category": "frontend",
+      "purpose": "Apply visual themes to any artifact",
+      "file": "commands/theme-factory.md"
+    },
+    {
+      "id": "web-artifacts-builder",
+      "category": "frontend",
+      "purpose": "Build complex multi-component HTML artifacts",
+      "file": "commands/web-artifacts-builder.md"
+    },
+    {
+      "id": "github-pr-flow",
+      "category": "git",
+      "purpose": "Standard GitHub branch → PR → CI → merge workflow",
+      "file": "commands/github-pr-flow.md"
+    },
+    {
+      "id": "mcp-builder",
+      "category": "integrations",
+      "purpose": "Guide for building high-quality MCP servers (Python or TypeScript)",
+      "file": "commands/mcp-builder.md"
+    },
+    {
+      "id": "skill-creator",
+      "category": "meta",
+      "purpose": "Build new skills, improve existing skills, run skill evals",
+      "file": "commands/skill-creator.md"
+    }
+  ],
+  "compatibility": {
+    "claude_code": ">=0.1.0",
+    "platforms": ["macOS", "Linux", "Windows (Git Bash / WSL)"]
+  },
+  "notes": [
+    "This manifest is forward-compatible. When Anthropic ships an official Claude Code plugin manifest standard, the upgrade should be mechanical.",
+    "Each command file has YAML frontmatter (name, description) so it self-identifies on disk.",
+    "Distribution model: fork + one-liner install. No marketplace dependency."
+  ]
+}
