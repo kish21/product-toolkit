@@ -70,6 +70,11 @@ app/
 **Allowed:** Build features, fix bugs, write tests
 **Ask first:** Installing new packages, changing DB schema, modifying auth
 
+## WORKING RULES
+**Standard workflow (every non-trivial task):** 1) architect first (how it *should* be built), 2) verify against real code/running system, 3) plan with NO hardcoding — values in config or `.env`, 4) benchmark to the current year + prefer the best open-source tool, then act, 5) self-review (code-review, quality/perf/tests) before "done".
+**Session boundaries:** one subtask per session. When a subtask is done, BEFORE suggesting a new session: (1) open a GitHub PR, (2) update this CLAUDE.md's build-state + NEXT SESSION PLAN for a clean handoff, then explicitly tell the user to start a new session. Don't finish a whole feature in one session.
+**Secret files:** `.env` and secret/credential files are the USER's to edit — hand them the exact lines, never hand-edit `.env`. Back up before any risky write.
+
 ## KNOWN FIXES — DO NOT REVERT
 (Record discovered bugs and fixed patterns here so they are never accidentally reverted.
 Format: what was wrong → what the fix is → which files it applies to.)
