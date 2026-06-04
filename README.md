@@ -1,12 +1,18 @@
 # product-toolkit
 
-> 8 original, interlocking Claude Code skills covering the full product lifecycle:
+> 8 original, interlocking Claude Code skills for the **build-and-ship** lifecycle:
 > **scaffold → audit → quality-gate → ship.**
 
 Not a grab-bag — a workflow. Every skill was hardened on a real shipping project
 ([agenticRag-rfp](https://github.com/kish21/agenticRag-rfp)), and the flagship scaffold has been
 **runtime-tested end to end**: the generated backend boots, both frontends build, and CI passes
 on the first commit.
+
+> **Want the *whole product* arc, not just build→ship?** See its sibling
+> **[product-playbook](https://github.com/kish21/product-playbook)** — a guided, step-by-step journey
+> (vision → scope → … → eval → ship → learn) that *composes* engineering skills like these.
+> *Rule of thumb:* reach for a **product-toolkit** skill when you know what you need; run
+> **product-playbook** when you want to be walked through the full arc.
 
 ```
 LIFECYCLE
