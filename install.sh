@@ -51,6 +51,7 @@ done
 for d in "${SRC}"/*/; do
   [[ -d "$d" ]] || continue
   name="$(basename "$d")"
+  rm -rf "${TARGET:?}/${name}"   # prevent nested copy (new-project/new-project) on re-install
   cp -R "$d" "${TARGET}/${name}"
   files_in=$(find "${TARGET}/${name}" -name "*.md" | wc -l)
   echo "  ✓ ${name}/ (${files_in} files — SKILL.md + references)"

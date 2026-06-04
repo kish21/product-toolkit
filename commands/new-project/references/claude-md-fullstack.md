@@ -24,7 +24,8 @@ docker-compose ps  # confirm services running
 
 ## DEV
 ```bash
-make dev      # starts backend on :8000 (runs docker, migrations, seed)
+make dev      # starts backend on :8000 (docker services + alembic migrations + seed)
+make migration m="add x"  # autogenerate migration from app/db/models.py changes
 make frontend # starts Next.js on :3000
 make test     # unit + integration tests
 make lint     # ruff + eslint
@@ -36,10 +37,13 @@ app/
 ├── api/         ← routes only. Import from auth/, providers/, infra/
 ├── auth/        ← jwt.py, rbac.py, dependencies.py
 ├── providers/   ← llm.py, embedding.py  — swap via .env, never hardcode
-├── infra/       ← circuit_breaker.py, rate_limiter.py, cost_tracker.py
+├── infra/       ← circuit_breaker.py, rate_limiter.py, cost_tracker.py, pagination.py
+├── validators/  ← centralised input validation — never ad-hoc checks in routes
 ├── schemas/     ← Pydantic output models (AI apps)
-├── db/          ← schema, fact_store
-└── jobs/        ← scheduled work
+├── prompts/     ← LangSmith YAML prompts + registry.py (AI apps)
+├── db/          ← models.py (SQLAlchemy — single source of truth), base.py (engine + get_db)
+└── jobs/        ← scheduled work + background tasks
+(migrations/ at repo root — Alembic, autogenerates from models.py)
 ```
 
 ## IMPORT RULES
@@ -89,14 +93,4 @@ Format: what was wrong → what the fix is → which files it applies to.)
   Wrong: saving the entire form state including File refs → silently stores undefined.
   Fix: save only string/number/select fields; on restore show "files not saved" notice
   with a Clear button; call clearDraft() on successful submit.
-  Applies to: any multi-field upload form.
-
-- Debounced auto-save with useRef timer: calling localStorage.setItem inside a useEffect
-  on every keystroke hammers storage and causes stale-closure bugs.
-  Fix: use useRef<ReturnType<typeof setTimeout>|null>(null); clear previous timer in
-  effect body, set new timer (800ms), return cleanup that clears it.
-  Applies to: any form with auto-save behaviour.
-```
-
----
-
+ 

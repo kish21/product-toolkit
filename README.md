@@ -1,8 +1,25 @@
 # product-toolkit
 
-> Personal Claude Code skills library — reusable slash commands for shipping production-grade products fast.
+> 8 original, interlocking Claude Code skills covering the full product lifecycle:
+> **scaffold → audit → quality-gate → ship.**
 
-**13 skills**, installable in any project, refined from real shipping work on the [agenticRag-rfp](https://github.com/kish21/agenticRag-rfp) project.
+Not a grab-bag — a workflow. Every skill was hardened on a real shipping project
+([agenticRag-rfp](https://github.com/kish21/agenticRag-rfp)), and the flagship scaffold has been
+**runtime-tested end to end**: the generated backend boots, both frontends build, and CI passes
+on the first commit.
+
+```
+LIFECYCLE
+  /new-project          ➜  scaffold a production-grade foundation
+  /enterprise-ai-audit  ➜  score it across 8 readiness categories, auto-fix gaps
+  /phase-done           ➜  11-category quality gate before every push
+  /github-pr-flow       ➜  branch → PR → CI → merge
+
+DOCS LOOP                          UI WORKFLOW
+  /doc-audit   ➜ diagnose            /frontend-design  ➜ design direction + rules
+  /doc-audit --fix ➜ refresh         /new-component    ➜ individual components
+  /doc-create  ➜ fill gaps
+```
 
 ---
 
@@ -12,152 +29,101 @@
 curl -fsSL https://raw.githubusercontent.com/kish21/product-toolkit/master/install.sh | bash
 ```
 
-That copies every `.md` from `commands/` into `~/.claude/commands/`. Every skill becomes available globally as a slash command in any Claude Code session — **no per-project setup**.
-
-### Or install manually
+That copies everything in `commands/` into `~/.claude/commands/` — each skill becomes a global
+slash command in any Claude Code session. No per-project setup. Re-running the installer is safe
+(it syncs updates).
 
 ```bash
+# Manual install / sync
 git clone https://github.com/kish21/product-toolkit ~/product-toolkit
-cp ~/product-toolkit/commands/*.md ~/.claude/commands/
+cd ~/product-toolkit && ./install.sh
 ```
 
-### Sync after the toolkit updates
+---
 
-```bash
-cd ~/product-toolkit && git pull && cp commands/*.md ~/.claude/commands/
-```
+## The flagship: `/new-project`
+
+Asks 4 short questions (each option has a "pick this if…" rationale), then scaffolds a complete
+foundation. Supports **SaaS / AI+SaaS / Internal tool / API-only** × **Full stack (FastAPI +
+Next.js) / Backend only / Frontend only (Next.js or React+Vite)**, with optional **Stripe
+billing** (webhook + subscription gating).
+
+What makes it different from create-next-app or a cookiecutter:
+
+- **Built for building with Claude.** Generates a CLAUDE.md contract (import rules, working
+  rules, per-feature contracts) that keeps the agent disciplined *after* scaffolding, plus two
+  MCP servers so Claude can query your dev database and call your API while you build.
+- **CI that enforces its own rules.** A drift-detector job fails the build on raw hex colours,
+  raw `fetch()` in UI primitives, or raw font strings — the scaffold's conventions are checked,
+  not just suggested.
+- **AI infrastructure from day one.** Swap LLM providers via one `.env` line (openai / anthropic /
+  openrouter / ollama / azure / modal), per-agent cost + latency tracking, prompt registry with
+  LangSmith + local YAML fallback.
+- **Real data layer.** SQLAlchemy 2.0 typed models as single source of truth + Alembic
+  migrations (initial migration included; `make migration m="..."` autogenerates from model
+  changes). Multi-tenant orgs/users/audit-log schema with RBAC.
+- **Runtime-tested.** The maximal scaffold (76+ files) was extracted and executed: server boots,
+  `/health` + `/metrics` + JWT login verified, both frontends build, lint and tests green on
+  first commit.
+- Plus the hygiene you'd expect: JWT auth, per-org rate limiting, validators, pagination,
+  Docker + compose, Prometheus metrics, pre-commit with secret scanning, structured test dirs,
+  Makefile single entrypoint.
+
+It's split into a slim orchestrator + 5 reference files, so each invocation loads only the
+templates your answers require (a "Frontend only" run never pays for Python templates).
 
 ---
 
 ## Skill catalogue
 
-| Skill | When to invoke | What it outputs | Lives in |
-|---|---|---|---|
-| **`/new-project`** | Starting a fresh project; user says "scaffold a new app" | Complete project scaffold — LLM abstraction, auth, security, CI/CD, frontend skeleton, CLAUDE.md. Asks 4 questions first. **Supports:** SaaS / AI+SaaS / Internal tool / API-only × Full stack / Backend only / Frontend only (Next.js OR React+Vite) + optional Stripe billing. | `commands/new-project/` (directory: slim SKILL.md + 5 references — see below) |
-| **`/enterprise-ai-audit`** | "Are we production ready?", "what are we missing?" — pre-launch health check on any AI project | 8-category score card (LLM abstraction, security, testing, deployment, observability, frontend, cost, Claude bonus features) + auto-creates missing boilerplate | `commands/enterprise-ai-audit.md` |
-| **`/phase-done`** | After every phase commit, **before push** — end-of-phase quality gate | 11-category report (code quality, architecture, hygiene, docs, memory writes, feature suggestions, pre-push hygiene, deferred work, branch freshness, CI parity, PR pre-creation audit) + `READY TO PUSH` / `FIX FIRST` / `REVIEW WARNINGS` | `commands/phase-done.md` |
-| **`/doc-audit`** | "Are our docs current?", "would a CTO trust this README?" | Per-doc grade table (currency / honesty / jargon / evidence / tone) × 4 audiences (buyer / CTO / investor / technical reviewer) + gap list + `READY` / `REFRESH` / `REGENERATE` recommendation. `--fix` opens refresh PR. | `commands/doc-audit.md` |
-| **`/doc-create`** | When `/doc-audit` flags a MISSING category, or "we should write a SECURITY.md" | ONE new doc grounded in actual code state (not generic templates). Catalogue: architecture, security, runbook, roadmap, competitive, personas, business-case, sla, performance, decisions, migrations, contributing, changelog, readme | `commands/doc-create.md` |
-| **`/frontend-design`** | Building any page, dashboard, or UI section from scratch | Design proposal + production-grade frontend code that avoids generic AI aesthetics (typography, depth/shadow, anti-template guardrails) | `commands/frontend-design.md` |
-| **`/new-component`** | Building any single React component (button, card, form, modal, table) | Component file enforcing CSS variables only, full interactive states (hover/focus/active), accessibility, design system constraints | `commands/new-component.md` |
-| **`/anti-ai-ui`** | Before delivering ANY frontend work — final UI check | 12-tell audit (flat shadows, uniform font weights, generic blue palette, missing states, etc.) + flag/fix anything template-generated | `commands/anti-ai-ui.md` |
-| **`/theme-factory`** | Styling any visual artifact (slides, HTML pages, reports) | Themed output via pre-set themes or generated custom themes | `commands/theme-factory.md` |
-| **`/web-artifacts-builder`** | Complex multi-component HTML artifact (state management, routing, component library) | React + Tailwind + shadcn/ui artifact with the right structure | `commands/web-artifacts-builder.md` |
-| **`/github-pr-flow`** | Pushing to a protected main/master branch | Branch creation, PR with proper title/body, CI failure handling, merge conflict resolution | `commands/github-pr-flow.md` |
-| **`/mcp-builder`** | Connecting Claude Code to an external service via MCP | High-quality MCP server (Python FastMCP or TypeScript MCP SDK) with proper tool design | `commands/mcp-builder.md` |
-| **`/skill-creator`** | Building a new skill, improving an existing skill, or running skill evaluations | New / improved skill file in `~/.claude/commands/` + eval workspace + benchmark | `commands/skill-creator.md` |
-
-### `/new-project` — what it actually scaffolds (read this if you're new to web apps)
-
-`/new-project` asks **4 short questions** and routes you down one of these paths. Each option has a "pick this if…" rationale so you can choose with confidence.
-
-#### Question 1 — what ARE you building?
-
-| Choice | Pick this if… | Adds to the scaffold |
+| Skill | When to invoke | What it outputs |
 |---|---|---|
-| **SaaS** | Multiple companies/teams sign up, each with their own users and data (Slack, Linear, Stripe Dashboard) | org/users tables, RBAC roles, multi-tenant scoping everywhere |
-| **AI + SaaS** | Same as SaaS but with an AI feature — chatbot grounded in user docs, document evaluator, writing assistant | Above + Qdrant vector DB + agent scaffolding + LangSmith prompt registry + Modal deploy config |
-| **Internal tool** | One company only — your team, ops, or admin dashboard. No paying customers | Drops billing + multi-tenant complexity |
-| **API only** | A backend that someone else's frontend will call (mobile, public API, integration service) | No frontend scaffolded at all |
+| **`/new-project`** | Starting a fresh project | Complete tested scaffold — see above |
+| **`/enterprise-ai-audit`** | "Are we production ready?" on any AI project | 8-category score card (LLM abstraction, data layer incl. migrations, security, testing, deployment, observability, frontend, cost controls) + Claude-specific bonuses + auto-created boilerplate for gaps |
+| **`/phase-done`** | After every phase commit, before push | 11-category report: code quality, deprecated patterns, hygiene, docs, memory, feature suggestions, pre-push secrets scan, deferred-work tracking, branch freshness, CI parity, PR-overwrite safety → `READY TO PUSH` / `FIX FIRST` / `REVIEW WARNINGS` |
+| **`/doc-audit`** | "Are our docs current? Would a CTO trust this README?" | Per-doc grades (currency / honesty / jargon / evidence / tone) × 4 audiences (buyer / CTO / investor / technical reviewer) + gap list; `--fix` opens a refresh PR |
+| **`/doc-create`** | A doc is missing (often flagged by `/doc-audit`) | ONE new doc grounded in actual code state — never generic templates, every claim cited or marked TODO |
+| **`/frontend-design`** | Building any page, dashboard, or UI section | Design direction + production-grade code avoiding generic AI aesthetics |
+| **`/new-component`** | Building any single React component | Component enforcing CSS-variable tokens, full interactive states, accessibility |
+| **`/github-pr-flow`** | Pushing to a protected main/master | Branch naming, PR with summary + test plan, CI failure handling, safe conflict resolution |
 
-#### Question 3 — payments from day one?
+### Pairs well with (Anthropic-published skills — not bundled here)
 
-| Choice | Pick this if… | Adds |
-|---|---|---|
-| **Yes** | You'll have paying customers from launch | Stripe webhook + subscription check on protected endpoints |
-| **No** | Pre-revenue or internal-only | Skipped (easy to add later) |
-
-#### Question 4 — what needs scaffolding?
-
-| Choice | Pick this if… | What gets created |
-|---|---|---|
-| **Full stack** | Building a complete product end-to-end | Backend (FastAPI) + Frontend (Next.js) + CI/CD for both |
-| **Backend only** | No web UI in this codebase | Just FastAPI — no frontend files |
-| **Frontend only → Next.js** | You already have a backend (Supabase, Firebase, existing API) AND SEO matters | Next.js standalone project |
-| **Frontend only → React + Vite** | Same as above but SEO doesn't matter (admin dashboard, internal tool) | React + Vite SPA |
-
-#### Why the skill is split into 5 reference files
-
-`/new-project` used to be one 2,926-line file — every invocation paid the cost of loading Python templates even when you picked "Frontend only". Now the slim orchestrator (~345 lines) loads ONLY the references your answers need:
-
-| Your choice | References loaded |
-|---|---|
-| Full stack | `backend-fastapi.md` + `frontend-nextjs.md` + `claude-md-fullstack.md` |
-| Backend only | `backend-fastapi.md` only |
-| Frontend only → Next.js | `frontend-nextjs.md` only |
-| Frontend only → React + Vite | `frontend-react-vite.md` only |
-| + Billing or AI+SaaS (any) | + `optional-features.md` |
-
-Smaller context = faster + cheaper invocations + clearer maintenance.
-
-### How they compose
-
-```
-NEW PROJECT FLOW
-    /new-project   ➜  scaffold full project
-        ➜  /enterprise-ai-audit  ➜  verify all 8 categories covered
-
-DOC QUALITY LOOP
-    /doc-audit          ➜  diagnose existing docs
-    /doc-audit --fix    ➜  refresh existing docs
-    /doc-create         ➜  scaffold missing docs (one per call)
-
-UI WORKFLOW
-    /frontend-design    ➜  layout + design proposal
-    /new-component      ➜  individual components
-    /anti-ai-ui         ➜  final audit before delivery
-
-SHIPPING FLOW
-    /phase-done         ➜  pre-push quality gate
-    /github-pr-flow     ➜  branch → PR → CI → merge
-
-EXTENDING
-    /skill-creator      ➜  build new skills or improve existing
-    /mcp-builder        ➜  add tool integrations
-    /theme-factory      ➜  style any visual artifact
-```
+This toolkit deliberately ships only original skills. For these adjacent needs, use Anthropic's
+own published skills: **skill-creator** (author new skills), **anti-ai-ui** (final UI audit —
+the natural third step after `/frontend-design` → `/new-component`), **mcp-builder**,
+**theme-factory**, **web-artifacts-builder**. Several ship with the Claude apps / Anthropic
+skills plugin.
 
 ---
 
-## Distribution & plugin status
+## Distribution
 
-Claude Code's plugin marketplace is still evolving. **As of 2026-05-29, the canonical install path is to drop `.md` files into `~/.claude/commands/`** — which is what `install.sh` does for you.
-
-The repo is **structurally plugin-ready**:
-
-- Each skill is a self-contained file with YAML frontmatter (`name`, `description`)
-- `install.sh` provides a one-line bootstrap
-- `manifest.json` declares the toolkit contents in a forward-compatible format so when Anthropic ships an official plugin manifest standard, the upgrade is mechanical
-
-**Want to ship this as a plugin to your team?** Fork the repo; everyone runs the one-line installer. That's the distribution model that works today.
+The one-line installer is the simplest path today. The repo is also structured for Claude Code's
+plugin format (self-contained skill files with frontmatter, `manifest.json`, directory-form
+skills with progressive disclosure) — packaging it as an installable plugin for a team
+marketplace is mechanical.
 
 ---
 
 ## Adding a new skill
 
 ```bash
-# 1. Create the skill
-vim commands/your-skill-name.md
-
-# 2. Install locally + add to git
-cp commands/your-skill-name.md ~/.claude/commands/
-git add commands/your-skill-name.md README.md manifest.json
-git commit -m "feat: add /your-skill-name skill"
-git push
+vim commands/your-skill-name.md          # 1. create (YAML frontmatter: name, description)
+cp commands/your-skill-name.md ~/.claude/commands/   # 2. install locally
+# 3. update README catalogue + manifest.json, then commit & push
 ```
-
-Update this README's catalogue table AND `manifest.json`'s `commands` list when you add a skill.
 
 ---
 
 ## Provenance
 
-Each skill in this toolkit was hardened on a real project before landing here. The provenance is preserved in the skill file's footnote section. Notable origins:
-
-- `/phase-done` — distilled from the agenticRag-rfp project after PR #150 surfaced 3 systemic bug classes (branch drift, CI parity gaps, PR metadata overwrites)
-- `/doc-audit` + `/doc-create` — created on agenticRag-rfp on 2026-05-29 after a reviewer-feedback round revealed several docs had drifted from master
-- `/new-project` — refined through 5 patches from agenticRag-rfp build learnings
+Every skill here was distilled from real shipping work, and the lineage is preserved in each
+file's footnote. Notable: `/phase-done` came out of PR #150 on agenticRag-rfp surfacing three
+systemic bug classes (branch drift, CI parity, PR metadata overwrites); `/new-project` has been
+through 7+ patch rounds including a full consistency review and runtime test (2026-06-04) — the
+changelog lives in its SKILL.md footnote.
 
 ---
 
-**License:** MIT (do whatever you want with these skills) · **Author:** [@kish21](https://github.com/kish21)
+**License:** MIT · **Author:** [@kish21](https://github.com/kish21)

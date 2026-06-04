@@ -31,7 +31,8 @@ Run these checks using Glob and Grep. Do all checks in parallel for speed.
 
 ### Category 2: Data Layer
 - Is there a vector store client? (glob for `qdrant_client.py` or `chroma` or `pinecone`)
-- Is there a relational DB for structured facts? (glob for `schema.sql` or `models.py` or `alembic`)
+- Is there a relational DB for structured facts? (glob for `models.py` or `schema.sql` or `alembic.ini`)
+- Are schema changes versioned? (glob for `migrations/versions/*.py` or `alembic.ini` — raw DDL with no migration history is a gap)
 - Do agent output models extend Pydantic BaseModel? (grep for `class.*Output.*BaseModel` or `class.*Result.*BaseModel`)
 - Is org_id filtering applied on queries? (grep for `org_id` in query files)
 
@@ -146,8 +147,14 @@ After printing the report, immediately proceed to Phase 3 without waiting.
 
 For each ❌ item (except those marked REVIEW REQUIRED), create the minimal boilerplate. Do all file creations in parallel.
 
+**Consistency rule:** if the project was scaffolded by `/new-project`, follow its conventions —
+infrastructure code goes in `app/infra/` (NEVER `app/core/` — that violates the scaffold's
+CLAUDE.md rules), frontend components in `frontend/components/`, colours via `var(--color-*)`
+tokens. When in doubt, match the structure already present in the repo.
+
 ### circuit_breaker.py (if missing)
-Create `app/core/circuit_breaker.py`:
+Create `app/infra/circuit_breaker.py` (fall back to the project's infra/utils package if the
+layout differs — never create `app/core/`):
 ```python
 import time
 from enum import Enum
@@ -248,7 +255,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-      - run: npm ci
+      # use npm ci ONLY if package-lock.json is committed; otherwise npm install
+      - run: npm ci || npm install
       - run: npm run build
       - run: npm run lint
 ```
@@ -293,10 +301,9 @@ export class ErrorBoundary extends React.Component<Props, State> {
 ```
 
 ### EmptyState (if frontend exists and missing)
-Create `frontend/components/EmptyState.tsx`:
+Create `frontend/components/EmptyState.tsx` — uses CSS variables directly so it works on ANY
+project (no `@/lib/theme` import, which only exists in /new-project scaffolds):
 ```tsx
-import { FONT, DISPLAY } from "@/lib/theme";
-
 interface Props {
   title: string;
   description?: string;
@@ -312,12 +319,12 @@ export function EmptyState({ title, description, action, icon }: Props) {
       color: "var(--color-text-muted)", textAlign: "center"
     }}>
       {icon && <div style={{ opacity: 0.4, marginBottom: "0.5rem" }}>{icon}</div>}
-      <p style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: "1.125rem",
+      <p style={{ fontFamily: "var(--font-display)", fontWeight: 700, fontSize: "1.125rem",
         letterSpacing: "-0.02em", color: "var(--color-text)", margin: 0 }}>
         {title}
       </p>
       {description && (
-        <p style={{ fontFamily: FONT, fontWeight: 400, fontSize: "0.875rem",
+        <p style={{ fontFamily: "var(--font-sans)", fontWeight: 400, fontSize: "0.875rem",
           lineHeight: 1.6, maxWidth: "24rem", margin: 0 }}>
           {description}
         </p>
@@ -369,28 +376,21 @@ Also add to `frontend/app/globals.css` (or equivalent):
 ```
 
 ### Prompt caching (if LLM_PROVIDER=anthropic and missing)
-In the Anthropic branch of `llm_provider.py`, wrap the system prompt with a cache_control block:
+In the Anthropic branch of the LLM wrapper (`app/providers/llm.py` in /new-project scaffolds),
+pass the system prompt as a system block with `cache_control` — this is the standard Messages
+API (the old `client.beta.prompt_caching.*` namespace is obsolete; never use it):
 ```python
-messages = [
-    {
-        "role": "user",
-        "content": [
-            {
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"}  # cache long system prompts
-            },
-            {
-                "type": "text",
-                "text": user_message
-            }
-        ]
-    }
-]
-response = client.beta.prompt_caching.messages.create(
+response = await client.messages.create(
     model=model,
     max_tokens=max_tokens,
-    messages=messages,
+    system=[
+        {
+            "type": "text",
+            "text": system_prompt,
+            "cache_control": {"type": "ephemeral"},  # cache long system prompts (60-90% savings)
+        }
+    ],
+    messages=[{"role": "user", "content": user_message}],
 )
 ```
 This is only valid when the Anthropic provider is selected — no changes needed for other providers.
@@ -401,25 +401,4 @@ This is only valid when the Anthropic provider is selected — no changes needed
 
 After creating files, list these separately as "REVIEW REQUIRED":
 
-- **CORS** — `allow_origins=["*"]` found. Replace with explicit list of your domains.
-- **Hardcoded secrets** — default values like `"change-me-in-production"` found. Enforce non-empty via startup validation.
-- **Per-org rate limiting** — current rate limiter is a global singleton. Requires architectural decision on per-org quota storage.
-- **Error alerting** — no Slack/PagerDuty integration. Requires deciding your alerting destination.
-- **Cost caps per org** — requires a `org_settings` table or config field. Requires schema decision.
-
----
-
-## AFTER FIXING
-
-Print a summary:
-```
-FIXED [N] items automatically.
-[N] items need your decision (listed above).
-Section B Claude bonuses: [N] available if you set LLM_PROVIDER=anthropic.
-
-New files created:
-  - app/core/circuit_breaker.py
-  - Dockerfile
-  - frontend/components/ErrorBoundary.tsx
-  - ...
-```
+- **CORS** — `allow_origin

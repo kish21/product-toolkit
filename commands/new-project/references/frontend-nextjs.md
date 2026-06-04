@@ -1,9 +1,13 @@
 # References - Next.js frontend scaffold
 
 Loaded by the orchestrator when:
-- **Full stack** -> emit the shared frontend components section first; the standalone Next.js project
-  scaffold is NOT emitted in full-stack mode.
-- **Frontend only -> Next.js** -> emit the FRONTEND ONLY - NEXT.JS section (the standalone project scaffold).
+- **Full stack** -> emit BOTH sections: the standalone Next.js project scaffold (under
+  `FRONTEND ONLY - NEXT.JS`, with every path prefixed `frontend/`, e.g. `frontend/package.json`,
+  `frontend/app/layout.tsx`) AND the shared frontend components section below. The Makefile,
+  CI, and onboarding steps all assume a complete, runnable `frontend/` — components alone
+  are not a frontend.
+- **Frontend only -> Next.js** -> emit ONLY the FRONTEND ONLY - NEXT.JS section at the repo
+  root (no `frontend/` prefix). Skip the shared components section unless useful.
 
 ---
 
@@ -32,6 +36,7 @@ export const THEMES: Theme[] = [
       "--color-text-muted": "#8b8fa8",
       "--color-accent": "#6366f1",
       "--color-accent-hover": "#4f46e5",
+      "--color-accent-foreground": "#ffffff",
       "--color-success": "#22c55e",
       "--color-warning": "#f59e0b",
       "--color-error": "#ef4444",
@@ -56,6 +61,7 @@ export const THEMES: Theme[] = [
       "--color-text-muted": "#64748b",
       "--color-accent": "#6366f1",
       "--color-accent-hover": "#4f46e5",
+      "--color-accent-foreground": "#ffffff",
       "--color-success": "#16a34a",
       "--color-warning": "#d97706",
       "--color-error": "#dc2626",
@@ -216,7 +222,8 @@ export function ErrorBanner({ message }: { message: string }) {
 
 ### FRONTEND ONLY — NEXT.JS
 
-Only create these files when user chose "Frontend only → Next.js". Skip all Python/backend files entirely.
+Create these files when the user chose "Frontend only → Next.js" (at repo root) OR "Full stack"
+(prefixed with `frontend/`). In frontend-only mode, skip all Python/backend files entirely.
 
 #### Directory structure
 
@@ -227,8 +234,7 @@ Only create these files when user chose "Frontend only → Next.js". Skip all Py
 │   ├── page.tsx
 │   ├── globals.css
 │   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── signup/page.tsx
+│   │   └── login/page.tsx
 │   └── dashboard/page.tsx
 ├── components/
 │   ├── ui/
@@ -251,6 +257,7 @@ Only create these files when user chose "Frontend only → Next.js". Skip all Py
 ├── postcss.config.mjs
 ├── package.json
 ├── .env.example
+├── .eslintrc.json
 ├── .gitignore
 ├── .github/workflows/ci.yml
 └── CLAUDE.md
@@ -367,17 +374,46 @@ export default function HomePage() {
 ```
 
 #### `app/globals.css`
+Token names match `lib/theme.ts` exactly — one contract everywhere (`--color-text`,
+`--color-text-muted`, never `-primary`/`-secondary`).
 ```css
 @import "tailwindcss";
 
 :root {
   --color-background: #ffffff;
-  --color-surface: #f9fafb;
-  --color-text-primary: #111827;
-  --color-text-secondary: #6b7280;
-  --color-accent: #2563eb;
-  --color-border: #e5e7eb;
-  --radius: 6px;
+  --color-surface: #f8fafc;
+  --color-surface-hover: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-accent-foreground: #ffffff;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-info: #2563eb;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --radius: 8px;
+  --transition: 150ms ease;
+  --font-sans: system-ui, sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: ui-monospace, monospace;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 ```
 
@@ -431,7 +467,7 @@ export default function LoginPage() {
             style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)", background: "var(--color-background)", color: "var(--color-text)", fontSize: 14 }} />
         </div>
         <button type="submit" disabled={loading}
-          style={{ padding: "10px", backgroundColor: loading ? "var(--color-border)" : "var(--color-accent)", color: "#fff", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", transition: "var(--transition)" }}>
+          style={{ padding: "10px", backgroundColor: loading ? "var(--color-border)" : "var(--color-accent)", color: "var(--color-accent-foreground)", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: loading ? "not-allowed" : "pointer", transition: "var(--transition)" }}>
           {loading ? "Signing in…" : "Sign in"}
         </button>
       </form>
@@ -464,7 +500,7 @@ export function Button({ variant = "primary", size = "md", children, ...props }:
     <button {...props} style={{
       padding: pad,
       backgroundColor: variant === "primary" ? "var(--color-accent)" : "transparent",
-      color: variant === "primary" ? "#fff" : "var(--color-text-primary)",
+      color: variant === "primary" ? "var(--color-accent-foreground)" : "var(--color-text)",
       border: variant === "secondary" ? "1px solid var(--color-border)" : "none",
       borderRadius: "var(--radius)", cursor: "pointer", fontWeight: 500, ...props.style,
     }}>{children}</button>
@@ -497,9 +533,9 @@ import Link from "next/link";
 export function Header() {
   return (
     <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", height: 56, borderBottom: "1px solid var(--color-border)" }}>
-      <Link href="/" style={{ fontWeight: 700, textDecoration: "none", color: "var(--color-text-primary)" }}>&lt;APP NAME&gt;</Link>
+      <Link href="/" style={{ fontWeight: 700, textDecoration: "none", color: "var(--color-text)" }}>&lt;APP NAME&gt;</Link>
       <nav style={{ display: "flex", gap: 16 }}>
-        <Link href="/dashboard" style={{ fontSize: 14, color: "var(--color-text-secondary)", textDecoration: "none" }}>Dashboard</Link>
+        <Link href="/dashboard" style={{ fontSize: 14, color: "var(--color-text-muted)", textDecoration: "none" }}>Dashboard</Link>
       </nav>
     </header>
   );
@@ -578,6 +614,12 @@ export interface ApiError { detail: string; status: number; }
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
+#### `.eslintrc.json`
+Required — `npm run lint` (next lint) fails in CI without a config file.
+```json
+{ "extends": "next/core-web-vitals" }
+```
+
 #### `.gitignore`
 ```
 node_modules/
@@ -603,8 +645,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci
+      # npm install (not ci) — no package-lock.json until first commit; switch to npm ci after.
+      - run: npm install
       - run: npm run type-check
       - run: npm run build
       - run: npm run lint
@@ -641,34 +683,4 @@ lib/utils.ts         ← cn(), formatDate()
 - Every input must have a label with htmlFor
 
 ## TYPESCRIPT TYPE RULES — SINGLE SOURCE OF TRUTH
-1. Any interface used by 2+ files → lives in `types.ts`, never duplicated
-2. Feature modules with 2+ sub-components get a `_components/` folder containing:
-   - `types.ts`   — all shared interfaces and union types
-   - `styles.ts`  — style objects and style helper functions
-   - `helpers.ts` — pure utility functions (no JSX)
-3. Union types / type aliases → `types.ts` only, never inside `styles.ts` or `helpers.ts`
-4. No workaround types (duck types, partial re-definitions) — fix the import graph instead
-
-## DRY RULES
-- Any React component used in 2+ files → extract to shared file before copy-pasting
-- Small shared UI helpers (ErrorBanner, Spinner, LoadingState) → `components/ui/`, never inlined
-
-## KNOWN FIXES — DO NOT REVERT
-(Record discovered bugs and fixed patterns here so they are never accidentally reverted.
-Format: what was wrong → what the fix is → which files it applies to.)
-```
-- localStorage draft for forms with file inputs: File objects cannot be serialized.
-  Wrong: saving the entire form state including File refs → silently stores undefined.
-  Fix: save only string/number/select fields; on restore show "files not saved" notice
-  with a Clear button; call clearDraft() on successful submit.
-  Applies to: any multi-field upload form.
-
-- Debounced auto-save with useRef timer: calling localStorage.setItem inside a useEffect
-  on every keystroke hammers storage and causes stale-closure bugs.
-  Fix: use useRef<ReturnType<typeof setTimeout>|null>(null); clear previous timer in
-  effect body, set new timer (800ms), return cleanup that clears it.
-  Applies to: any form with auto-save behaviour.
-```
-
----
-
+1. Any interface used by 2+ files → 

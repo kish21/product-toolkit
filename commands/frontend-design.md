@@ -45,10 +45,10 @@ var(--color-surface-hover)     hover states
 var(--color-border)            dividers
 var(--color-border-strong)     emphasis borders
 var(--color-accent)            CTAs, active states
+var(--color-accent-hover)      accent hover state
 var(--color-accent-foreground) text on accent
-var(--color-text-primary)
-var(--color-text-secondary)
-var(--color-text-muted)
+var(--color-text)              primary text
+var(--color-text-muted)        secondary / muted text
 var(--color-success)           positive states
 var(--color-warning)           pending / caution
 var(--color-error)             destructive / failed
@@ -108,4 +108,4 @@ var(--radius)                  border radius
 - Would a design-savvy person call this "template-y"? If yes — find and fix it.
 
 > If the design is only describable as "clean and modern" — it is generic.
-> Every interface should feel like it was built for this specific product and audience.
+> Every interface 
