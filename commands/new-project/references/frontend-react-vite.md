@@ -540,4 +540,62 @@ jobs:
 
 ## THIS PROJECT
 **Stack:** React 19, Vite 6, TypeScript, Tailwind CSS v4, React Router v6, Zustand
-**API:** VITE_API
+**API:** VITE_API_URL in .env
+
+## DEV
+```bash
+npm install && npm run dev   # http://localhost:5173
+npm run type-check           # TypeScript without building
+```
+
+## STRUCTURE
+```
+src/components/ui/       ← primitives — Button, Input, no business logic
+src/components/layout/   ← Header, Sidebar — app chrome
+src/components/features/ ← page-specific components
+src/pages/               ← one file per route, imported in App.tsx
+src/hooks/useAuth.ts     ← auth hook wrapping Zustand store
+src/lib/api.ts           ← all API calls go here, never raw fetch()
+src/store/auth.ts        ← Zustand + localStorage persistence
+src/types/               ← shared TypeScript interfaces
+```
+
+## RULES
+- All API calls use src/lib/api.ts — never raw fetch() in components
+- Auth state lives in Zustand store — never useState for auth
+- src/components/ui/ are pure primitives — no router imports, no API calls
+- CSS custom properties only — never raw hex in components
+- Every input must have a label with htmlFor
+
+## TYPESCRIPT TYPE RULES — SINGLE SOURCE OF TRUTH
+1. Any interface used by 2+ files → lives in `types.ts`, never duplicated
+2. Feature modules with 2+ sub-components get a `_components/` folder containing:
+   - `types.ts`   — all shared interfaces and union types
+   - `styles.ts`  — style objects and style helper functions
+   - `helpers.ts` — pure utility functions (no JSX)
+3. Union types / type aliases → `types.ts` only, never inside `styles.ts` or `helpers.ts`
+4. No workaround types (duck types, partial re-definitions) — fix the import graph instead
+
+## DRY RULES
+- Any React component used in 2+ files → extract to shared file before copy-pasting
+- Small shared UI helpers (ErrorBanner, Spinner, LoadingState) → `src/components/ui/`, never inlined
+
+## KNOWN FIXES — DO NOT REVERT
+(Record discovered bugs and fixed patterns here so they are never accidentally reverted.
+Format: what was wrong → what the fix is → which files it applies to.)
+```
+- localStorage draft for forms with file inputs: File objects cannot be serialized.
+  Wrong: saving the entire form state including File refs → silently stores undefined.
+  Fix: save only string/number/select fields; on restore show "files not saved" notice
+  with a Clear button; call clearDraft() on successful submit.
+  Applies to: any multi-field upload form.
+
+- Debounced auto-save with useRef timer: calling localStorage.setItem inside a useEffect
+  on every keystroke hammers storage and causes stale-closure bugs.
+  Fix: use useRef<ReturnType<typeof setTimeout>|null>(null); clear previous timer in
+  effect body, set new timer (800ms), return cleanup that clears it.
+  Applies to: any form with auto-save behaviour.
+```
+
+---
+

@@ -108,4 +108,4 @@ var(--radius)                  border radius
 - Would a design-savvy person call this "template-y"? If yes — find and fix it.
 
 > If the design is only describable as "clean and modern" — it is generic.
-> Every interface 
+> Every interface should feel like it was built for this specific product and audience.

@@ -360,4 +360,6 @@ to every project. To share with team-mates or other projects:
 1. Push a copy to your `kish21/product-toolkit` repo
 2. Other devs `cp product-toolkit/phase-done.md ~/.claude/commands/`
 3. For project-specific extras, layer a `.claude/commands/phase-done-<project>.md`
-   in the project repo that invokes `/phase-do
+   in the project repo that invokes `/phase-done` first then adds custom checks.
+
+Date: 2026-05-28. Iterate as new patterns emerge.
