@@ -401,4 +401,25 @@ This is only valid when the Anthropic provider is selected — no changes needed
 
 After creating files, list these separately as "REVIEW REQUIRED":
 
-- **CORS** — `allow_origin
+- **CORS** — `allow_origins=["*"]` found. Replace with explicit list of your domains.
+- **Hardcoded secrets** — default values like `"change-me-in-production"` found. Enforce non-empty via startup validation.
+- **Per-org rate limiting** — current rate limiter is a global singleton. Requires architectural decision on per-org quota storage.
+- **Error alerting** — no Slack/PagerDuty integration. Requires deciding your alerting destination.
+- **Cost caps per org** — requires a `org_settings` table or config field. Requires schema decision.
+
+---
+
+## AFTER FIXING
+
+Print a summary:
+```
+FIXED [N] items automatically.
+[N] items need your decision (listed above).
+Section B Claude bonuses: [N] available if you set LLM_PROVIDER=anthropic.
+
+New files created:
+  - app/infra/circuit_breaker.py
+  - Dockerfile
+  - frontend/components/ErrorBoundary.tsx
+  - ...
+```

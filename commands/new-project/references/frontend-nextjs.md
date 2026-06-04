@@ -683,4 +683,34 @@ lib/utils.ts         ← cn(), formatDate()
 - Every input must have a label with htmlFor
 
 ## TYPESCRIPT TYPE RULES — SINGLE SOURCE OF TRUTH
-1. Any interface used by 2+ files → 
+1. Any interface used by 2+ files → lives in `types.ts`, never duplicated
+2. Feature modules with 2+ sub-components get a `_components/` folder containing:
+   - `types.ts`   — all shared interfaces and union types
+   - `styles.ts`  — style objects and style helper functions
+   - `helpers.ts` — pure utility functions (no JSX)
+3. Union types / type aliases → `types.ts` only, never inside `styles.ts` or `helpers.ts`
+4. No workaround types (duck types, partial re-definitions) — fix the import graph instead
+
+## DRY RULES
+- Any React component used in 2+ files → extract to shared file before copy-pasting
+- Small shared UI helpers (ErrorBanner, Spinner, LoadingState) → `components/ui/`, never inlined
+
+## KNOWN FIXES — DO NOT REVERT
+(Record discovered bugs and fixed patterns here so they are never accidentally reverted.
+Format: what was wrong → what the fix is → which files it applies to.)
+```
+- localStorage draft for forms with file inputs: File objects cannot be serialized.
+  Wrong: saving the entire form state including File refs → silently stores undefined.
+  Fix: save only string/number/select fields; on restore show "files not saved" notice
+  with a Clear button; call clearDraft() on successful submit.
+  Applies to: any multi-field upload form.
+
+- Debounced auto-save with useRef timer: calling localStorage.setItem inside a useEffect
+  on every keystroke hammers storage and causes stale-closure bugs.
+  Fix: use useRef<ReturnType<typeof setTimeout>|null>(null); clear previous timer in
+  effect body, set new timer (800ms), return cleanup that clears it.
+  Applies to: any form with auto-save behaviour.
+```
+
+---
+

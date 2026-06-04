@@ -225,4 +225,63 @@ except ImportError:
 
 PROMPTS_DIR = Path(__file__).parent.parent / "app" / "prompts"
 
-# SSL workaround for Windows corporate proxies
+# SSL workaround for Windows corporate proxies with TLS inspection
+if os.getenv("SSL_VERIFY", "true").lower() == "false":
+    import ssl
+    import urllib.request
+    ssl._create_default_https_context = ssl._create_unverified_context
+    os.environ["CURL_CA_BUNDLE"] = ""
+    os.environ["REQUESTS_CA_BUNDLE"] = ""
+
+def push_prompts():
+    api_key = os.getenv("LANGSMITH_API_KEY")
+    if not api_key:
+        print("ERROR: LANGSMITH_API_KEY not set in .env")
+        sys.exit(1)
+
+    from langsmith import Client
+    client = Client()
+
+    yaml_files = list(PROMPTS_DIR.rglob("*.yaml"))
+    if not yaml_files:
+        print("No YAML prompt files found in app/prompts/")
+        return
+
+    for path in yaml_files:
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+
+        name = data.get("name") or path.stem.replace("_", "-")
+        template = data.get("template", "")
+
+        try:
+            from langchain_core.prompts import PromptTemplate
+            prompt = PromptTemplate.from_template(template)
+            client.push_prompt(name, object=prompt)
+            print(f"  ✅ pushed: {name}")
+        except Exception as e:
+            print(f"  ❌ failed: {name} — {e}")
+
+if __name__ == "__main__":
+    push_prompts()
+```
+
+### `deploy/modal.py`
+```python
+"""
+Modal deployment — GPU inference, batch embeddings, scheduled jobs.
+Deploy: modal deploy deploy/modal.py
+"""
+import modal
+
+app = modal.App("app-name")
+image = modal.Image.debian_slim().pip_install_from_requirements("requirements.txt")
+
+@app.function(image=image, schedule=modal.Cron("0 2 * * *"))
+def daily_cleanup():
+    from app.jobs.cleanup import cleanup_old_records
+    cleanup_old_records()
+```
+
+---
+

@@ -93,4 +93,14 @@ Format: what was wrong → what the fix is → which files it applies to.)
   Wrong: saving the entire form state including File refs → silently stores undefined.
   Fix: save only string/number/select fields; on restore show "files not saved" notice
   with a Clear button; call clearDraft() on successful submit.
- 
+  Applies to: any multi-field upload form.
+
+- Debounced auto-save with useRef timer: calling localStorage.setItem inside a useEffect
+  on every keystroke hammers storage and causes stale-closure bugs.
+  Fix: use useRef<ReturnType<typeof setTimeout>|null>(null); clear previous timer in
+  effect body, set new timer (800ms), return cleanup that clears it.
+  Applies to: any form with auto-save behaviour.
+```
+
+---
+

@@ -206,7 +206,10 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
   ✅ Background task pattern — no raw threading hacks
   ✅ Theme system (lib/theme.ts) — dark/light + runtime switchable
   ✅ Frontend drift detector in CI — enforces no raw hex, no fetch() in ui/
-  ✅ GitHub Actions CI (ruff lint + pytest + frontend build + drift check)
+  ✅ GitHub Actions CI (ruff lint + pytest + frontend build + drift check + pip-audit CVE scan)
+  ✅ Dependabot — weekly dependency-update PRs (pip + npm + actions)
+  ✅ .github/SECURITY.md — responsible-disclosure policy (enables "Report a vulnerability")
+  ✅ CHANGELOG.md — Keep a Changelog format, starts with [Unreleased]
   ✅ Makefile — make dev / test / lint / seed
   ✅ pyproject.toml — ruff + pytest config
   ✅ .pre-commit-config.yaml — ruff + secret scanner
@@ -330,4 +333,66 @@ Stack: FastAPI + PostgreSQL + Redis (no frontend)
 ## What NOT to do
 
 - Don't load all references up-front. Load what the user's answers require, nothing more.
-- Don't run on an existing repo. If you see existing code, stop and ask the user to confirm (e.g., empty directory check; presence of an `app/` or `frontend/` with fil
+- Don't run on an existing repo. If you see existing code, stop and ask the user to confirm (e.g., empty directory check; presence of an `app/` or `frontend/` with files).
+- Don't re-implement a file template inside this SKILL.md. Templates live in `references/*.md`. This file is routing logic + questions + summary only.
+- Don't add billing files if the user picked "Internal tool" — these conflict. Ask before doing so.
+- Don't claim a feature was scaffolded that wasn't actually written.
+
+---
+
+## Footnote for me — keep this in sync
+
+This skill is `~/.claude/commands/new-project/SKILL.md` — user-global so it applies to every project.
+
+To share with team-mates:
+1. Copy the entire `new-project/` directory to `~/product-toolkit/commands/new-project/`
+2. Push to https://github.com/kish21/product-toolkit
+3. Other devs run the one-line installer: `curl -fsSL https://raw.githubusercontent.com/kish21/product-toolkit/master/install.sh | bash`
+
+When you patch this skill after fixing a structural pattern on a project, update the appropriate file:
+- **SKILL.md** — routing logic, question wording, summary template
+- **references/backend-fastapi.md** — Python/FastAPI scaffold templates
+- **references/frontend-nextjs.md** — Next.js scaffold templates
+- **references/frontend-react-vite.md** — React + Vite scaffold templates
+- **references/claude-md-fullstack.md** — root CLAUDE.md template
+- **references/optional-features.md** — billing, AI/SaaS schemas/prompts/Modal
+
+2026-06-04 security-baseline-from-day-one: scaffold now emits `.github/dependabot.yml`
+(weekly pip/npm/actions update PRs), `.github/SECURITY.md` (responsible disclosure), and
+`CHANGELOG.md` (Keep a Changelog, [Unreleased]); CI gains a `dependency-audit` job
+(`pypa/gh-action-pip-audit`, fail-closed on known CVEs). Lesson from a real project: a strict
+CVE gate added LATE inherits a months-deep backlog (33 CVEs on first scan) — adding it on day
+one while deps are clean keeps it green and lets the bot patch one-at-a-time. Reflected in
+references/backend-fastapi.md (tree + ci.yml + 3 file templates) and the "What's ready" summary.
+
+Date last refactored: 2026-05-29 (split from monolithic 2926-line file).
+2026-06-04 consistency patch: full-stack now emits the complete frontend scaffold; unified CSS
+token contract (--color-text/--color-text-muted everywhere) + skeleton keyframes; aligned role
+set (owner/admin/member/viewer) across rbac.py/schema.sql/login; require_role/require_permission
+wired as real FastAPI deps; removed alembic split-brain (schema.sql via initdb.d + make db-apply);
+fixed make dev port conflict (app service commented in compose); placeholder unit test so CI
+passes day one; requirements cleanup (dropped python-jose + sentence-transformers from base,
+added mcp; conditional adds documented); model-override + ssl_verify fields in config.py;
+Vite: added tsconfig.app.json + eslint.config.js (flat config); billing now ships
+require_active_subscription; AI section documents qdrant uncomment + extra deps;
+internal-tool mode = single-tenant-by-convention (keep org_id, seed default org).
+2026-06-04 runtime test (scaffolded maximal path + built it): fixed Vite build failures
+(added src/vite-env.d.ts, @types/node, ESM-safe vite.config.ts — no __dirname); added
+.eslintrc.json to Next scaffold (next lint fails without it); removed raw #fff from Buttons
+via --color-accent-foreground token (scaffold was failing its own CI drift check); removed
+unused imports (llm.py time, dependencies.py HTTPException); billing router import must be
+top-of-file (E402); smoke_test.py uses trust_env=False; creation rule added: run ruff --fix
+after emission so CI lint passes on first commit. Verified green: backend boots, /health +
+/metrics + JWT login work, pytest 2/2, schema.sql valid PG, all YAML valid, Next build ✅,
+Vite build/lint/type-check ✅, drift checks ✅.
+2026-06-04 industry-grade DB layer: replaced schema.sql-on-first-boot with SQLAlchemy 2.0
+models (app/db/models.py — single source of truth) + base.py (engine/SessionLocal/get_db
+dependency) + full Alembic setup (alembic.ini, migrations/env.py wired to Base.metadata,
+hand-written initial migration). make dev runs alembic upgrade head; make migration m="..."
+autogenerates from model changes. Verified: models import, offline alembic upgrade generates
+correct CREATE TABLE/INDEX SQL, columns match models exactly, tests pass.
+2026-06-04 variant coverage: all 4 buildable stack variants now runtime-tested — (1) full-stack
++ AI+SaaS + billing [maximal], (2) backend-only plain SaaS (boots, health/login/metrics, tests,
+alembic SQL), (3) frontend-only Next.js standalone at repo root (type-check/build/lint/drift ✅),
+(4) frontend-only React+Vite (build/lint/type-check ✅). Still untested: Internal-tool behavioral
+branch, live question-flow orchestration, docker-compose boot — cover via a real /new-project run.

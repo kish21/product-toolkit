@@ -29,9 +29,13 @@ All file templates below are emitted verbatim (with `<app-name>` substituted).
 ├── tools/                ← build quality: smoke_test.py, push_prompts.py [AI apps] (never ops)
 ├── scripts/              ← ops only: seed, reset (never test code)
 ├── .mcp/                 ← MCP servers for Claude Code
-├── .github/workflows/
+├── .github/
+│   ├── workflows/        ← ci.yml (lint + test + CVE scan)
+│   ├── dependabot.yml    ← weekly dependency-update PRs (pip + npm + actions)
+│   └── SECURITY.md       ← responsible-disclosure policy (enables "Report a vulnerability")
 ├── migrations/           ← Alembic (env.py + versions/ — initial migration included)
 ├── alembic.ini
+├── CHANGELOG.md          ← Keep a Changelog format, starts with [Unreleased]
 ├── Makefile              ← single dev entrypoint
 ├── pyproject.toml        ← ruff + pytest config
 ├── .pre-commit-config.yaml
@@ -1048,4 +1052,568 @@ if __name__ == "__main__":
 """Seed initial data — run once after migrations."""
 # TODO: insert default org, admin user, and baseline config
 if __name__ == "__main__":
-    print("Seeding database...
+    print("Seeding database...")
+```
+
+---
+
+### `Makefile`
+Single entrypoint for all dev tasks — `make dev` gets a new engineer running in under 5 minutes.
+```makefile
+.PHONY: dev migrate migration test lint seed reset check
+
+dev:
+	cp -n .env.example .env 2>/dev/null || true
+	docker-compose up -d postgres redis prometheus grafana loki
+	pip install -r requirements.txt
+	alembic upgrade head
+	python scripts/seed.py
+	uvicorn app.main:app --reload --port 8000
+
+migrate:
+	alembic upgrade head
+
+# Usage: make migration m="add invoices table"  — autogenerates from app/db/models.py
+migration:
+	alembic revision --autogenerate -m "$(m)"
+
+frontend:
+	cd frontend && npm install && npm run dev
+
+test:
+	pytest tests/unit tests/integration -v --tb=short
+
+lint:
+	ruff check app/ tests/ --fix
+	ruff format app/ tests/
+	cd frontend && npx eslint . 2>/dev/null || true
+
+seed:
+	python scripts/seed.py
+
+reset:
+	python scripts/reset.py
+
+check:
+	pytest tests/unit -q
+	python -c "from app.main import app; print('imports ok')"
+```
+
+### `pyproject.toml`
+```toml
+[project]
+name = "app"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["app"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic's conventional import order differs from isort — don't fight it
+"migrations/*" = ["I001"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+```
+
+### `.pre-commit-config.yaml`
+```yaml
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+  - repo: https://github.com/trufflesecurity/trufflehog
+    rev: v3.75.0
+    hooks:
+      - id: trufflehog
+        name: Secret scan
+        entry: trufflehog git file://. --since-commit HEAD --only-verified --fail
+        language: system
+        pass_filenames: false
+```
+
+---
+
+### `Dockerfile`
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:8000/health || exit 1
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+### `docker-compose.yml`
+```yaml
+version: "3.9"
+services:
+  # NOTE: `make dev` runs the app locally via uvicorn on :8000 and starts only the
+  # services below. Uncomment `app` for a prod-like containerised run — but never
+  # run both at once (port 8000 conflict).
+  # app:
+  #   build: .
+  #   ports:
+  #     - "8000:8000"
+  #   env_file: .env
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #   restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: appdb
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: apppassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+
+  # Uncomment for AI apps:
+  # qdrant:
+  #   image: qdrant/qdrant:latest
+  #   ports:
+  #     - "6333:6333"
+  #   volumes:
+  #     - qdrant_data:/qdrant/storage
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+  # qdrant_data:
+```
+
+### `.gitignore`
+```
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+
+# Env
+.env
+.env.local
+.env*.local
+
+# Secrets / local state — never commit
+*.smoke_test_state.json
+SESSION_PLAN.md
+
+# Test data (large PDFs, sample documents — store in shared drive instead)
+data/documents/
+
+# Node
+node_modules/
+.next/
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+```
+
+### `.github/workflows/ci.yml`
+```yaml
+name: CI
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend — lint + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt ruff
+      - name: Lint
+        run: ruff check app/ tests/
+      - name: Create test .env
+        run: |
+          cat > .env << 'EOF'
+          SECRET_KEY=ci-test-secret-32-chars-minimum-x
+          DATABASE_URL=postgresql://user:pass@localhost/db
+          LLM_PROVIDER=openai
+          OPENAI_API_KEY=sk-fake
+          EMBEDDING_PROVIDER=local
+          EOF
+      - name: Test
+        run: pytest tests/unit -v --tb=short
+
+  # Scan pinned Python deps for known CVEs on every push/PR. Added on day one
+  # while deps are clean, so it starts (and stays) green — patch CVEs as they
+  # appear instead of inheriting a months-deep backlog. Fail-closed on any known
+  # vuln; if a transitive vuln has no fix yet, triage it and add an explicit
+  # `--ignore-vuln GHSA-xxxx` to extra-args (config in source, never a silent skip).
+  dependency-audit:
+    name: Dependency CVE scan (pip-audit)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: pip-audit
+        uses: pypa/gh-action-pip-audit@v1.1.0
+        with:
+          inputs: requirements.txt
+
+  frontend:
+    name: Frontend — build + lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # npm install (not ci) — the scaffold has no package-lock.json yet.
+      # Switch to `npm ci` after committing the lockfile.
+      - run: npm install
+      - run: npm run build
+      - run: npm run lint
+
+  frontend-drift:
+    name: Frontend — structure drift check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check no raw fetch() in ui/ components
+        run: |
+          if grep -r "fetch(" frontend/components/ui/; then
+            echo "❌ Raw fetch() found in components/ui/ — use lib/api.ts instead"
+            exit 1
+          fi
+      - name: Check no hex colours in components
+        run: |
+          if grep -rE "#[0-9a-fA-F]{3,6}" frontend/components/; then
+            echo "❌ Raw hex colour found in components — use var(--color-*) instead"
+            exit 1
+          fi
+      - name: Check no raw font strings in components
+        run: |
+          if grep -rE "font-family\s*:\s*['\"]" frontend/components/; then
+            echo "❌ Raw font string found — use FONT, DISPLAY, or MONO from lib/theme.ts"
+            exit 1
+          fi
+```
+
+### `.github/dependabot.yml`
+```yaml
+# Weekly dependency-update PRs so CVE fixes land automatically — the companion to
+# the pip-audit CI gate (the gate detects, the bot fixes). Keeps the backlog at zero.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "npm"          # drop if backend-only
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "frontend"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels: ["dependencies", "ci"]
+```
+
+### `.github/SECURITY.md`
+```markdown
+# Security Policy
+
+## Supported Versions
+Pre-1.0; security fixes ship from the default branch only.
+
+| Version  | Supported |
+| -------- | --------- |
+| `main`   | ✅        |
+
+## Reporting a Vulnerability
+**Do not open a public issue for security vulnerabilities.** Report privately:
+
+- **GitHub** — the **"Report a vulnerability"** button under the repo's **Security** tab.
+- **Email** — `security@<your-domain>` with subject `SECURITY:`.
+
+Please include the affected component, steps to reproduce, and the impact.
+
+## What to Expect
+| Stage              | Target                 |
+| ------------------ | ---------------------- |
+| Acknowledgement    | within 3 business days |
+| Initial assessment | within 7 business days |
+
+We support coordinated disclosure — please give us a reasonable window to ship a fix.
+```
+
+### `CHANGELOG.md`
+```markdown
+# Changelog
+
+All notable changes to this project are documented in this file.
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/).
+
+## [Unreleased]
+
+### Added
+- Initial project scaffold.
+```
+
+### `.env.example`
+```bash
+# App
+APP_NAME=MyApp
+DEBUG=false
+SECRET_KEY=change-me-in-production-use-openssl-rand-hex-32
+
+# CORS — comma-separated list of allowed origins
+ALLOWED_ORIGINS=http://localhost:3000,https://app.yourdomain.com
+
+# Database
+DATABASE_URL=postgresql://appuser:apppassword@localhost:5432/appdb
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# LLM Provider — openai | anthropic | openrouter | ollama | azure | modal
+LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_API_KEY=sk-or-...
+AZURE_OPENAI_API_KEY=
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_DEPLOYMENT=
+OLLAMA_BASE_URL=http://localhost:11434
+MODAL_LLM_URL=
+
+# Model overrides (optional — defaults in app/config.py)
+OPENAI_MODEL=gpt-4o
+ANTHROPIC_MODEL=claude-sonnet-4-6
+OPENROUTER_MODEL=openai/gpt-4o
+OLLAMA_MODEL=qwen2.5:72b
+
+# SSL — set false ONLY in dev behind corporate TLS-inspecting proxies
+SSL_VERIFY=true
+
+# Embeddings — openai | azure | local | modal
+EMBEDDING_PROVIDER=openai
+OPENAI_EMBEDDING_MODEL=text-embedding-3-large
+EMBEDDING_MODEL_LOCAL=BAAI/bge-large-en-v1.5
+
+# Observability (optional)
+LANGFUSE_PUBLIC_KEY=
+LANGFUSE_SECRET_KEY=
+LANGFUSE_HOST=https://cloud.langfuse.com
+
+# Vector store (AI apps only)
+QDRANT_URL=http://localhost:6333
+
+# Stripe (if billing enabled)
+STRIPE_SECRET_KEY=sk_test_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+```
+
+### `requirements.txt`
+```
+fastapi==0.136.1
+uvicorn[standard]==0.34.3
+pydantic==2.13.3
+pydantic-settings==2.9.1
+pyjwt==2.10.1
+httpx==0.28.1
+sqlalchemy==2.0.40
+alembic==1.16.5
+psycopg2-binary==2.9.10
+redis==5.2.1
+openai==2.33.0
+anthropic==0.49.0
+mcp==1.9.0
+pytest==8.3.5
+pytest-asyncio==0.25.0
+ruff==0.4.4
+prometheus-fastapi-instrumentator==7.1.0
+# Add only if EMBEDDING_PROVIDER=local (pulls in torch, ~2GB):
+#   sentence-transformers==4.1.0
+# AI + SaaS apps also add (see references/optional-features.md):
+#   qdrant-client, langsmith, pyyaml, python-dotenv
+# Billing adds: stripe
+```
+
+---
+
+### `prometheus.yml`
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: fastapi
+    static_configs:
+      - targets: ['host.docker.internal:8000']
+        labels:
+          app_name: appname
+    metrics_path: /metrics
+```
+Replace `appname` with your actual app name.
+
+---
+
+### `.mcp/database-server.py`
+```python
+"""
+MCP server — lets Claude Code query the app database directly in conversation.
+Run: python .mcp/database-server.py
+"""
+import os
+import psycopg2
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("database")
+
+def get_conn():
+    return psycopg2.connect(os.environ["DATABASE_URL"])
+
+@mcp.tool()
+def query_db(sql: str) -> str:
+    """Run a read-only SQL query against the app database."""
+    if any(kw in sql.upper() for kw in ["INSERT", "UPDATE", "DELETE", "DROP", "TRUNCATE"]):
+        return "Error: only SELECT queries allowed"
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+            rows = cur.fetchall()
+            cols = [d[0] for d in cur.description]
+            return str([dict(zip(cols, row)) for row in rows[:50]])
+
+@mcp.tool()
+def list_tables() -> str:
+    """List all tables in the database."""
+    return query_db("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+### `.mcp/api-server.py`
+```python
+"""
+MCP server — lets Claude Code call app API endpoints directly.
+Run: python .mcp/api-server.py
+"""
+import os
+import httpx
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("api")
+BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
+
+@mcp.tool()
+def health_check() -> str:
+    """Check if the app is running."""
+    r = httpx.get(f"{BASE_URL}/health")
+    return r.json()
+
+@mcp.tool()
+def get_endpoint(path: str) -> str:
+    """Call a GET endpoint on the app. path should start with /"""
+    r = httpx.get(f"{BASE_URL}{path}", timeout=10)
+    return r.text
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+---
+
