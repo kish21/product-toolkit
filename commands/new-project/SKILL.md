@@ -66,8 +66,9 @@ QUESTION 3 — Take payments from day one?
 
   a) Yes — scaffold Stripe webhook + subscription check now
      pick this if: you'll have paying customers from launch.
-     Adds: app/api/billing_routes.py with webhook signature verification
-     + subscription-active check on protected endpoints.
+     Adds: app/api/billing_routes.py (webhook with signature verification)
+     + app/auth/billing.py (require_active_subscription dependency for
+     gating paid endpoints) + stripe in requirements.txt.
 
   b) No — skip Stripe for now
      pick this if: you're pre-revenue, internal-only, or will wire payments
@@ -126,22 +127,27 @@ Based on the answers, load **only** the reference files you need. **Never load a
 | Frontend only → Next.js | `references/frontend-nextjs.md` only (use the standalone scaffold inside that file) |
 | Frontend only → React+Vite | `references/frontend-react-vite.md` only |
 
-Inside `references/frontend-nextjs.md` two scaffolds coexist:
-- **Shared frontend components** (ErrorBoundary, EmptyState, SkeletonLoader, AuthGuard, ErrorBanner) — emit these for **Full stack** mode.
-- **Standalone Next.js project scaffold** under the `FRONTEND ONLY — NEXT.JS` header — emit this whole section ONLY for **Frontend only → Next.js**, instead of the full-stack components.
+Inside `references/frontend-nextjs.md` two sections coexist:
+- **Standalone Next.js project scaffold** under the `FRONTEND ONLY — NEXT.JS` header — the complete runnable app (package.json, layout, login, lib/api.ts, …).
+- **Shared frontend components** (ErrorBoundary, EmptyState, SkeletonLoader, AuthGuard, ErrorBanner).
+
+Emission rules:
+- **Full stack** → emit BOTH: the standalone scaffold with every path prefixed `frontend/`, plus the shared components into `frontend/components/`. (`make frontend`, CI, and onboarding all assume a runnable `frontend/`.)
+- **Frontend only → Next.js** → emit the standalone scaffold at repo root; shared components optional.
 
 ### Adapting based on App type (within whichever references are loaded)
 
 - **App type = API only** → skip every frontend file. Equivalent to `Backend only` for emission purposes.
 - **App type = SaaS** → standard behaviour: emit multi-tenant tables, RBAC.
 - **App type = AI + SaaS** → also emit the AI section from `optional-features.md`.
-- **App type = Internal tool** → drop billing-related files even if Q3 was Yes (warn the user; ask to confirm). Drop multi-tenant org_id from the schema; single-tenant.
+- **App type = Internal tool** → drop billing-related files even if Q3 was Yes (warn the user; ask to confirm). KEEP the org_id columns and per-org infrastructure as-is, but seed a single "default" org and note in CLAUDE.md that the app is single-tenant (one org). Do NOT hand-edit org_id out of the schema, rate limiter, validators, or JWT — there is no single-tenant template, and improvised removal drifts. Single-tenant-by-convention is the supported path.
 
 ### Creation rules
 
 - Substitute `<app-name>` everywhere with the user's answer to Q2.
 - Create files in parallel where order doesn't matter.
 - Don't ask follow-up questions during emission. If a template has a placeholder, fill it with a sensible default and surface a TODO at the end.
+- **After emitting backend files, run `ruff check app/ tests/ --fix && ruff format app/ tests/`** (or `make lint`) so import order is normalized — CI runs `ruff check` WITHOUT `--fix`, and unsorted template imports would fail the first pipeline run otherwise.
 
 ---
 
@@ -159,7 +165,7 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
 
 ── Start in one command ────────────────────
   cp .env.example .env   # fill in your values
-  make dev               # docker + migrations + seed + backend :8000
+  make dev               # docker services + migrations + seed + backend :8000
   make frontend          # Next.js :3000 (separate terminal)
 
 ── Package structure ───────────────────────
@@ -171,7 +177,7 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
   deploy/         Modal GPU deployment        [AI apps only]
   tests/unit/     fast, no I/O
   tests/integration/  needs DB + services
-  tools/          build quality: smoke_test, checkpoint_runner, push_prompts
+  tools/          build quality: smoke_test.py, push_prompts.py [AI apps only]
   scripts/        ops only (seed, reset) — never test code here
 
 ── MCP servers ─────────────────────────────
@@ -181,6 +187,8 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
 
 ── What's ready ────────────────────────────
   ✅ LLM abstraction (6 providers, prompt caching on Anthropic)
+  ✅ SQLAlchemy 2.0 models (Org/User/AuditLog) — single source of truth for schema
+  ✅ Alembic migrations — initial migration included; make migration m="..." for changes
   ✅ JWT auth — create_token, decode_token, require_role
   ✅ RBAC — owner/admin/member/viewer permission matrix
   ✅ Per-org rate limiting (token bucket)
@@ -228,7 +236,9 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
     → Loki        localhost:3100
 
   STEP 3 — Run migrations (1 min)
-    alembic upgrade head
+    make migrate            (make dev already runs this)
+    Later schema changes: edit app/db/models.py, then
+    make migration m="describe the change" && make migrate
 
   STEP 4 — Verify foundation (1 min)
     make check
@@ -252,6 +262,8 @@ Stack: Next.js + FastAPI + PostgreSQL + Redis
   ✋ List endpoints use PaginatedResponse — never invent own pagination
   ✋ Input validation via app/validators/ — never ad-hoc len() in routes
   ✋ Background tasks via app/jobs/background.py — never raw threading
+  ✋ Schema changes ONLY via app/db/models.py + alembic migration — never raw DDL
+  ✋ DB access via get_db dependency from app/db/base.py — never ad-hoc engines
   ✋ Never create app/core/ — it becomes a dumping ground
 
   Frontend:
@@ -318,28 +330,4 @@ Stack: FastAPI + PostgreSQL + Redis (no frontend)
 ## What NOT to do
 
 - Don't load all references up-front. Load what the user's answers require, nothing more.
-- Don't run on an existing repo. If you see existing code, stop and ask the user to confirm (e.g., empty directory check; presence of an `app/` or `frontend/` with files).
-- Don't re-implement a file template inside this SKILL.md. Templates live in `references/*.md`. This file is routing logic + questions + summary only.
-- Don't add billing files if the user picked "Internal tool" — these conflict. Ask before doing so.
-- Don't claim a feature was scaffolded that wasn't actually written.
-
----
-
-## Footnote for me — keep this in sync
-
-This skill is `~/.claude/commands/new-project/SKILL.md` — user-global so it applies to every project.
-
-To share with team-mates:
-1. Copy the entire `new-project/` directory to `~/product-toolkit/commands/new-project/`
-2. Push to https://github.com/kish21/product-toolkit
-3. Other devs run the one-line installer: `curl -fsSL https://raw.githubusercontent.com/kish21/product-toolkit/master/install.sh | bash`
-
-When you patch this skill after fixing a structural pattern on a project, update the appropriate file:
-- **SKILL.md** — routing logic, question wording, summary template
-- **references/backend-fastapi.md** — Python/FastAPI scaffold templates
-- **references/frontend-nextjs.md** — Next.js scaffold templates
-- **references/frontend-react-vite.md** — React + Vite scaffold templates
-- **references/claude-md-fullstack.md** — root CLAUDE.md template
-- **references/optional-features.md** — billing, AI/SaaS schemas/prompts/Modal
-
-Date last refactored: 2026-05-29 (split from monolithic 2926-line file).
+- Don't run on an existing repo. If you see existing code, stop and ask the user to confirm (e.g., empty directory check; presence of an `app/` or `frontend/` with fil

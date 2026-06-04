@@ -37,12 +37,15 @@ Only create these files when user chose "Frontend only → React + Vite". Skip a
 │   │   └── index.ts
 │   ├── App.tsx
 │   ├── main.tsx
+│   ├── vite-env.d.ts
 │   └── index.css
 ├── public/
 ├── index.html
 ├── vite.config.ts
 ├── tsconfig.json
+├── tsconfig.app.json
 ├── tsconfig.node.json
+├── eslint.config.js
 ├── package.json
 ├── .env.example
 ├── .gitignore
@@ -60,7 +63,7 @@ Only create these files when user chose "Frontend only → React + Vite". Skip a
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --ext ts,tsx",
+    "lint": "eslint .",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
@@ -70,6 +73,7 @@ Only create these files when user chose "Frontend only → React + Vite". Skip a
     "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/node": "^20.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",
@@ -78,23 +82,60 @@ Only create these files when user chose "Frontend only → React + Vite". Skip a
     "tailwindcss": "^4.0.0",
     "@tailwindcss/vite": "^4.0.0",
     "eslint": "^9.13.0",
+    "typescript-eslint": "^8.15.0",
+    "@eslint/js": "^9.13.0",
+    "globals": "^15.12.0",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.14"
   }
 }
 ```
 
+#### `eslint.config.js`
+eslint 9 uses flat config — without this file `npm run lint` fails.
+```js
+import js from "@eslint/js";
+import globals from "globals";
+import reactHooks from "eslint-plugin-react-hooks";
+import reactRefresh from "eslint-plugin-react-refresh";
+import tseslint from "typescript-eslint";
+
+export default tseslint.config(
+  { ignores: ["dist"] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ["**/*.{ts,tsx}"],
+    languageOptions: { ecmaVersion: 2020, globals: globals.browser },
+    plugins: { "react-hooks": reactHooks, "react-refresh": reactRefresh },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+    },
+  }
+);
+```
+
 #### `vite.config.ts`
+ESM-safe — `__dirname` does not exist in ESM, and `node:path` needs `@types/node`.
 ```ts
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
-import path from "path";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  resolve: { alias: { "@": path.resolve(dirname, "./src") } },
 });
+```
+
+#### `src/vite-env.d.ts`
+Required — without it `import.meta.env` fails type-check (TS2339).
+```ts
+/// <reference types="vite/client" />
 ```
 
 #### `tsconfig.json`
@@ -102,6 +143,33 @@ export default defineConfig({
 {
   "files": [],
   "references": [{ "path": "./tsconfig.app.json" }, { "path": "./tsconfig.node.json" }]
+}
+```
+
+#### `tsconfig.app.json`
+Referenced by tsconfig.json — without it `tsc -b` (the build script) fails.
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["./src/*"] }
+  },
+  "include": ["src"]
 }
 ```
 
@@ -175,18 +243,33 @@ export default function App() {
 ```css
 @import "tailwindcss";
 
+/* Token names match the toolkit-wide contract (same as Next.js scaffold + theme.ts):
+   --color-text / --color-text-muted — never -primary / -secondary. */
 :root {
   --color-background: #ffffff;
-  --color-surface: #f9fafb;
-  --color-text-primary: #111827;
-  --color-text-secondary: #6b7280;
-  --color-accent: #2563eb;
-  --color-border: #e5e7eb;
-  --radius: 6px;
+  --color-surface: #f8fafc;
+  --color-surface-hover: #f1f5f9;
+  --color-border: #e2e8f0;
+  --color-border-strong: #cbd5e1;
+  --color-text: #0f172a;
+  --color-text-muted: #64748b;
+  --color-accent: #6366f1;
+  --color-accent-hover: #4f46e5;
+  --color-accent-foreground: #ffffff;
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+  --color-info: #2563eb;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,0.12);
+  --radius: 8px;
+  --transition: 150ms ease;
+  --font-sans: system-ui, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, sans-serif; background: var(--color-background); color: var(--color-text-primary); }
+body { margin: 0; font-family: var(--font-sans); background: var(--color-background); color: var(--color-text); }
 ```
 
 #### `src/store/auth.ts`
@@ -269,8 +352,8 @@ export function HomePage() {
   return (
     <main style={{ padding: "4rem 2rem", maxWidth: 640, margin: "0 auto" }}>
       <h1 style={{ fontWeight: 800, fontSize: 48, letterSpacing: "-0.03em", marginBottom: 16 }}>&lt;APP NAME&gt;</h1>
-      <p style={{ color: "var(--color-text-secondary)", fontSize: 16, marginBottom: 32 }}>Your app description here.</p>
-      <Link to="/login" style={{ padding: "10px 20px", backgroundColor: "var(--color-accent)", color: "#fff", borderRadius: "var(--radius)", textDecoration: "none", fontWeight: 600 }}>
+      <p style={{ color: "var(--color-text-muted)", fontSize: 16, marginBottom: 32 }}>Your app description here.</p>
+      <Link to="/login" style={{ padding: "10px 20px", backgroundColor: "var(--color-accent)", color: "var(--color-accent-foreground)", borderRadius: "var(--radius)", textDecoration: "none", fontWeight: 600 }}>
         Get started →
       </Link>
     </main>
@@ -313,7 +396,7 @@ export function LoginPage() {
         <label htmlFor="password" style={{ fontSize: 13, fontWeight: 500 }}>Password</label>
         <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required
           style={{ padding: "9px 12px", border: "1px solid var(--color-border)", borderRadius: "var(--radius)" }} />
-        <button type="submit" style={{ padding: "10px", backgroundColor: "var(--color-accent)", color: "#fff", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: "pointer" }}>
+        <button type="submit" style={{ padding: "10px", backgroundColor: "var(--color-accent)", color: "var(--color-accent-foreground)", border: "none", borderRadius: "var(--radius)", fontWeight: 600, cursor: "pointer" }}>
           Sign in
         </button>
       </form>
@@ -331,7 +414,7 @@ export function DashboardPage() {
     <main style={{ padding: "2rem" }}>
       <h1>Dashboard</h1>
       <p>Signed in as {email}</p>
-      <button onClick={signOut} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-secondary)" }}>Sign out</button>
+      <button onClick={signOut} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--color-text-muted)" }}>Sign out</button>
     </main>
   );
 }
@@ -343,7 +426,7 @@ import { Link } from "react-router-dom";
 export function NotFoundPage() {
   return (
     <main style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", gap: 16 }}>
-      <p style={{ fontWeight: 800, fontSize: 64, letterSpacing: "-0.04em", color: "var(--color-text-secondary)" }}>404</p>
+      <p style={{ fontWeight: 800, fontSize: 64, letterSpacing: "-0.04em", color: "var(--color-text-muted)" }}>404</p>
       <p>This page does not exist.</p>
       <Link to="/">Go home</Link>
     </main>
@@ -363,7 +446,7 @@ export function Button({ variant = "primary", size = "md", children, ...props }:
     <button {...props} style={{
       padding: pad, cursor: "pointer", fontWeight: 500, borderRadius: "var(--radius)",
       backgroundColor: variant === "primary" ? "var(--color-accent)" : "transparent",
-      color: variant === "primary" ? "#fff" : "var(--color-text-primary)",
+      color: variant === "primary" ? "var(--color-accent-foreground)" : "var(--color-text)",
       border: variant === "secondary" ? "1px solid var(--color-border)" : "none",
       ...props.style,
     }}>{children}</button>
@@ -398,11 +481,11 @@ export function Header() {
   const { isLoggedIn, signOut } = useAuth();
   return (
     <header style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 24px", height: 56, borderBottom: "1px solid var(--color-border)" }}>
-      <Link to="/" style={{ fontWeight: 700, textDecoration: "none", color: "var(--color-text-primary)" }}>&lt;APP NAME&gt;</Link>
+      <Link to="/" style={{ fontWeight: 700, textDecoration: "none", color: "var(--color-text)" }}>&lt;APP NAME&gt;</Link>
       <nav>
         {isLoggedIn
           ? <button onClick={signOut} style={{ background: "none", border: "none", cursor: "pointer" }}>Sign out</button>
-          : <Link to="/login" style={{ textDecoration: "none", color: "var(--color-text-secondary)" }}>Sign in</Link>}
+          : <Link to="/login" style={{ textDecoration: "none", color: "var(--color-text-muted)" }}>Sign in</Link>}
       </nav>
     </header>
   );
@@ -444,8 +527,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
-          cache: "npm"
-      - run: npm ci
+      # npm install (not ci) — no package-lock.json until first commit; switch to npm ci after.
+      - run: npm install
       - run: npm run type-check
       - run: npm run build
       - run: npm run lint
@@ -457,62 +540,4 @@ jobs:
 
 ## THIS PROJECT
 **Stack:** React 19, Vite 6, TypeScript, Tailwind CSS v4, React Router v6, Zustand
-**API:** VITE_API_URL in .env
-
-## DEV
-```bash
-npm install && npm run dev   # http://localhost:5173
-npm run type-check           # TypeScript without building
-```
-
-## STRUCTURE
-```
-src/components/ui/       ← primitives — Button, Input, no business logic
-src/components/layout/   ← Header, Sidebar — app chrome
-src/components/features/ ← page-specific components
-src/pages/               ← one file per route, imported in App.tsx
-src/hooks/useAuth.ts     ← auth hook wrapping Zustand store
-src/lib/api.ts           ← all API calls go here, never raw fetch()
-src/store/auth.ts        ← Zustand + localStorage persistence
-src/types/               ← shared TypeScript interfaces
-```
-
-## RULES
-- All API calls use src/lib/api.ts — never raw fetch() in components
-- Auth state lives in Zustand store — never useState for auth
-- src/components/ui/ are pure primitives — no router imports, no API calls
-- CSS custom properties only — never raw hex in components
-- Every input must have a label with htmlFor
-
-## TYPESCRIPT TYPE RULES — SINGLE SOURCE OF TRUTH
-1. Any interface used by 2+ files → lives in `types.ts`, never duplicated
-2. Feature modules with 2+ sub-components get a `_components/` folder containing:
-   - `types.ts`   — all shared interfaces and union types
-   - `styles.ts`  — style objects and style helper functions
-   - `helpers.ts` — pure utility functions (no JSX)
-3. Union types / type aliases → `types.ts` only, never inside `styles.ts` or `helpers.ts`
-4. No workaround types (duck types, partial re-definitions) — fix the import graph instead
-
-## DRY RULES
-- Any React component used in 2+ files → extract to shared file before copy-pasting
-- Small shared UI helpers (ErrorBanner, Spinner, LoadingState) → `src/components/ui/`, never inlined
-
-## KNOWN FIXES — DO NOT REVERT
-(Record discovered bugs and fixed patterns here so they are never accidentally reverted.
-Format: what was wrong → what the fix is → which files it applies to.)
-```
-- localStorage draft for forms with file inputs: File objects cannot be serialized.
-  Wrong: saving the entire form state including File refs → silently stores undefined.
-  Fix: save only string/number/select fields; on restore show "files not saved" notice
-  with a Clear button; call clearDraft() on successful submit.
-  Applies to: any multi-field upload form.
-
-- Debounced auto-save with useRef timer: calling localStorage.setItem inside a useEffect
-  on every keystroke hammers storage and causes stale-closure bugs.
-  Fix: use useRef<ReturnType<typeof setTimeout>|null>(null); clear previous timer in
-  effect body, set new timer (800ms), return cleanup that clears it.
-  Applies to: any form with auto-save behaviour.
-```
-
----
-
+**API:** VITE_API

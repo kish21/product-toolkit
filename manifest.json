@@ -1,7 +1,7 @@
 {
   "name": "product-toolkit",
-  "version": "1.0.0",
-  "description": "Personal Claude Code skills library — reusable slash commands for shipping production-grade products fast.",
+  "version": "1.1.0",
+  "description": "Claude Code skills library — 8 original, interlocking slash commands covering the full product lifecycle: scaffold → audit → quality-gate → ship.",
   "author": "kish21",
   "license": "MIT",
   "homepage": "https://github.com/kish21/product-toolkit",
@@ -16,7 +16,7 @@
     {
       "id": "new-project",
       "category": "scaffolding",
-      "purpose": "Scaffold a complete production-ready project foundation",
+      "purpose": "Scaffold a complete production-ready project foundation (runtime-tested: backend boots, frontends build, CI passes day one)",
       "form": "directory",
       "file": "commands/new-project/SKILL.md",
       "references": [
@@ -29,7 +29,8 @@
       "supports": {
         "app_types": ["SaaS", "AI + SaaS", "Internal tool", "API only"],
         "stacks": ["Full stack (FastAPI + Next.js)", "Backend only (FastAPI)", "Frontend only (Next.js)", "Frontend only (React + Vite)"],
-        "optional": ["Stripe billing", "AI + SaaS (Qdrant, prompts, Modal)"]
+        "optional": ["Stripe billing + subscription gating", "AI + SaaS (Qdrant, LangSmith prompts, Modal)"],
+        "highlights": ["SQLAlchemy 2.0 models + Alembic migrations", "MCP servers so Claude can query your dev DB and API", "generated CLAUDE.md contract", "CI drift detector"]
       }
     },
     {
@@ -41,7 +42,7 @@
     {
       "id": "phase-done",
       "category": "quality",
-      "purpose": "End-of-phase quality gate before pushing to remote",
+      "purpose": "11-category end-of-phase quality gate before pushing to remote",
       "file": "commands/phase-done.md"
     },
     {
@@ -69,49 +70,26 @@
       "file": "commands/new-component.md"
     },
     {
-      "id": "anti-ai-ui",
-      "category": "frontend",
-      "purpose": "Audit finished UI against 12 AI-tell checks before delivery",
-      "file": "commands/anti-ai-ui.md"
-    },
-    {
-      "id": "theme-factory",
-      "category": "frontend",
-      "purpose": "Apply visual themes to any artifact",
-      "file": "commands/theme-factory.md"
-    },
-    {
-      "id": "web-artifacts-builder",
-      "category": "frontend",
-      "purpose": "Build complex multi-component HTML artifacts",
-      "file": "commands/web-artifacts-builder.md"
-    },
-    {
       "id": "github-pr-flow",
       "category": "git",
       "purpose": "Standard GitHub branch → PR → CI → merge workflow",
       "file": "commands/github-pr-flow.md"
-    },
-    {
-      "id": "mcp-builder",
-      "category": "integrations",
-      "purpose": "Guide for building high-quality MCP servers (Python or TypeScript)",
-      "file": "commands/mcp-builder.md"
-    },
-    {
-      "id": "skill-creator",
-      "category": "meta",
-      "purpose": "Build new skills, improve existing skills, run skill evals",
-      "file": "commands/skill-creator.md"
     }
+  ],
+  "pairs_well_with": [
+    {"skill": "skill-creator", "source": "Anthropic skills plugin"},
+    {"skill": "anti-ai-ui", "source": "Anthropic skills plugin"},
+    {"skill": "mcp-builder", "source": "Anthropic public skills"},
+    {"skill": "theme-factory", "source": "Anthropic public skills"},
+    {"skill": "web-artifacts-builder", "source": "Anthropic public skills"}
   ],
   "compatibility": {
     "claude_code": ">=0.1.0",
     "platforms": ["macOS", "Linux", "Windows (Git Bash / WSL)"]
   },
   "notes": [
-    "This manifest is forward-compatible. When Anthropic ships an official Claude Code plugin manifest standard, the upgrade should be mechanical.",
+    "v1.1.0: removed 5 Anthropic-published skills (get originals from Anthropic); fixed cross-skill contradictions; new-project gained SQLAlchemy models + Alembic and was runtime-tested end to end.",
     "Each command file has YAML frontmatter (name, description) so it self-identifies on disk.",
-    "Distribution model: fork + one-liner install. No marketplace dependency."
+    "Distribution model: fork + one-liner install, or package as a Claude Code plugin."
   ]
 }

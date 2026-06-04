@@ -8,6 +8,16 @@ Loaded by the orchestrator when the user opted into one of these:
 
 ### ALSO CREATE IF BILLING=YES
 
+Also do these two things:
+1. Append to `requirements.txt`: `stripe==12.0.0`
+2. In `app/api/routes.py`, mount the router — the import goes AT THE TOP with the other
+   imports (an import after `router = APIRouter()` is an E402 lint failure in CI):
+   ```python
+   from app.api.billing_routes import router as billing_router  # top of file
+   ...
+   router.include_router(billing_router, prefix="/billing", tags=["billing"])
+   ```
+
 ### `app/api/billing_routes.py`
 ```python
 from fastapi import APIRouter, Request, HTTPException
@@ -36,9 +46,43 @@ async def stripe_webhook(request: Request):
     return {"status": "ok"}
 ```
 
+### `app/auth/billing.py`
+Subscription-active check — the dependency that gates paid endpoints (this is the
+"subscription check" promised in the scaffold summary).
+```python
+"""Gate endpoints on an active subscription.
+
+Usage:
+    @router.post("/evaluate", dependencies=[Depends(require_active_subscription)])
+"""
+from fastapi import Depends, HTTPException
+from app.auth.dependencies import get_current_user
+
+PAID_PLANS = {"pro", "team", "enterprise"}
+
+
+def _org_plan(org_id: str) -> str:
+    # TODO: SELECT plan FROM orgs WHERE id = :org_id (cache briefly — this runs per request)
+    return "free"
+
+
+def require_active_subscription(payload: dict = Depends(get_current_user)) -> dict:
+    plan = _org_plan(payload.get("org_id", ""))
+    if plan not in PAID_PLANS:
+        raise HTTPException(status_code=402, detail="Active subscription required")
+    return payload
+```
+
 ---
 
 ### ALSO CREATE IF AI + SaaS
+
+Also do these three things:
+1. Append to `requirements.txt`:
+   `qdrant-client==1.12.0`, `langsmith==0.3.4`, `pyyaml==6.0.2`, `python-dotenv==1.0.1`
+   (plus `sentence-transformers==4.1.0` only if EMBEDDING_PROVIDER=local)
+2. In `docker-compose.yml`, uncomment the `qdrant` service and the `qdrant_data` volume.
+3. Create the `deploy/` directory for `deploy/modal.py` below.
 
 ### `app/schemas/__init__.py`
 Empty file.
@@ -181,63 +225,4 @@ except ImportError:
 
 PROMPTS_DIR = Path(__file__).parent.parent / "app" / "prompts"
 
-# SSL workaround for Windows corporate proxies with TLS inspection
-if os.getenv("SSL_VERIFY", "true").lower() == "false":
-    import ssl
-    import urllib.request
-    ssl._create_default_https_context = ssl._create_unverified_context
-    os.environ["CURL_CA_BUNDLE"] = ""
-    os.environ["REQUESTS_CA_BUNDLE"] = ""
-
-def push_prompts():
-    api_key = os.getenv("LANGSMITH_API_KEY")
-    if not api_key:
-        print("ERROR: LANGSMITH_API_KEY not set in .env")
-        sys.exit(1)
-
-    from langsmith import Client
-    client = Client()
-
-    yaml_files = list(PROMPTS_DIR.rglob("*.yaml"))
-    if not yaml_files:
-        print("No YAML prompt files found in app/prompts/")
-        return
-
-    for path in yaml_files:
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-
-        name = data.get("name") or path.stem.replace("_", "-")
-        template = data.get("template", "")
-
-        try:
-            from langchain_core.prompts import PromptTemplate
-            prompt = PromptTemplate.from_template(template)
-            client.push_prompt(name, object=prompt)
-            print(f"  ✅ pushed: {name}")
-        except Exception as e:
-            print(f"  ❌ failed: {name} — {e}")
-
-if __name__ == "__main__":
-    push_prompts()
-```
-
-### `deploy/modal.py`
-```python
-"""
-Modal deployment — GPU inference, batch embeddings, scheduled jobs.
-Deploy: modal deploy deploy/modal.py
-"""
-import modal
-
-app = modal.App("app-name")
-image = modal.Image.debian_slim().pip_install_from_requirements("requirements.txt")
-
-@app.function(image=image, schedule=modal.Cron("0 2 * * *"))
-def daily_cleanup():
-    from app.jobs.cleanup import cleanup_old_records
-    cleanup_old_records()
-```
-
----
-
+# SSL workaround for Windows corporate proxies

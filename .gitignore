@@ -1,0 +1,12 @@
+# Local-only skills — Anthropic-published skills kept for personal use,
+# intentionally NOT part of the published toolkit (get originals from Anthropic)
+local-skills/
+
+# Throwaway scaffold-test output (generated when testing /new-project)
+_scaffold-test/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

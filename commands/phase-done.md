@@ -1,10 +1,10 @@
 ---
-description: End-of-phase quality gate — runs /code-review, scans for outdated patterns, recommends underused Claude Code features, blocks bad pushes
+description: End-of-phase quality gate — 11-category audit (code review, deprecated patterns, hygiene, docs, CI parity, branch freshness, PR safety) that blocks bad pushes
 ---
 
 # `/phase-done` — generic end-of-phase quality gate
 
-You are running an 8-category end-of-phase audit on the user's current branch.
+You are running an 11-category end-of-phase audit on the user's current branch.
 Use this **after every phase commit**, before push. The user invokes this as
 the LAST step of a phase; your job is to surface anything that warrants action.
 
@@ -37,7 +37,7 @@ nothing to audit.
 
 ---
 
-## Phase 1 — Run the 8 audit categories
+## Phase 1 — Run the 11 audit categories
 
 For each category, surface findings with severity (high / medium / low) and a
 concrete action. Don't fix anything automatically — the user decides.
@@ -48,7 +48,7 @@ concrete action. Don't fix anything automatically — the user decides.
 - **If** `app/auth/`, `app/api/`, schema, or anything access-control was touched:
   also recommend the user run `/security-review` (you cannot invoke it yourself
   — only the user can run user-level slash commands).
-- If `/code-review` surfaces auto-fixable cleanups, recommend `/simplify`.
+- If `/code-review` surfaces auto-fixable cleanups, recommend `/simplify` (if installed).
 
 ### Category 2 — Architecture currency
 
@@ -120,14 +120,14 @@ Inspect the file *categories* changed and recommend underused features:
 |---|---|
 | `app/db/`, `db/`, any `.sql`, or DB-touching code | Install **Postgres / SQLite MCP server** for next phase (replaces inline `psycopg2` / `sqlalchemy.text` scripts) |
 | `app/api/`, GitHub workflow, repeated `gh` CLI calls | Install **GitHub MCP server** |
-| `frontend/`, `*.tsx`, `*.jsx`, `*.vue`, `*.svelte` | Use `/frontend-design` → `/frontend-component` → `/anti-ai-ui` in sequence |
+| `frontend/`, `*.tsx`, `*.jsx`, `*.vue`, `*.svelte` | Use `/frontend-design` → `/new-component`, then Anthropic's `anti-ai-ui` skill if installed |
 | `app/auth/`, RBAC, multi-tenant code | Run `/security-review` explicitly on this branch |
 | Multiple independent feature areas changed in one phase | Next time consider `Agent(isolation: "worktree")` to do them in parallel |
 | New background job / cron / scheduled task | Use `/schedule` for cron-style remote agents |
 | Subtle correctness logic (state machines, schedulers, concurrency) | Run `/code-review ultra` (billed cloud multi-agent) on the PR |
 | LLM prompt changes (any `*.yaml` / `*.txt` under prompts dir) | Audit prompt caching via the `claude-api` skill |
-| Same kind of permission prompt fired ≥3 times this session | Run `/fewer-permission-prompts` to consolidate |
-| Recurring task pattern emerging (e.g. you typed similar commands 4+ times) | Use `/skill-creator` to author a reusable skill |
+| Same kind of permission prompt fired ≥3 times this session | Run `/fewer-permission-prompts` to consolidate (if installed) |
+| Recurring task pattern emerging (e.g. you typed similar commands 4+ times) | Use Anthropic's `skill-creator` skill to author a reusable skill |
 
 For each recommendation, link to the relevant doc or skill name. Don't
 recommend something the project already uses — check first.
@@ -360,6 +360,4 @@ to every project. To share with team-mates or other projects:
 1. Push a copy to your `kish21/product-toolkit` repo
 2. Other devs `cp product-toolkit/phase-done.md ~/.claude/commands/`
 3. For project-specific extras, layer a `.claude/commands/phase-done-<project>.md`
-   in the project repo that invokes `/phase-done` first then adds custom checks.
-
-Date: 2026-05-28. Iterate as new patterns emerge.
+   in the project repo that invokes `/phase-do
