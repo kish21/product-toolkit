@@ -1327,8 +1327,10 @@ jobs:
   # Scan pinned Python deps for known CVEs on every push/PR. Added on day one
   # while deps are clean, so it starts (and stays) green — patch CVEs as they
   # appear instead of inheriting a months-deep backlog. Fail-closed on any known
-  # vuln; if a transitive vuln has no fix yet, triage it and add an explicit
-  # `--ignore-vuln GHSA-xxxx` to extra-args (config in source, never a silent skip).
+  # vuln; if a transitive vuln has no fix yet, triage it and add its ID to the
+  # action's `ignore-vulns:` input below, each with a comment (config in source,
+  # never a silent skip). NOTE: use `ignore-vulns:` — passing --ignore-vuln via
+  # `extra-args` is NOT honoured by this action.
   dependency-audit:
     name: Dependency CVE scan (pip-audit)
     runs-on: ubuntu-latest
@@ -1340,6 +1342,9 @@ jobs:
         uses: pypa/gh-action-pip-audit@v1.1.0
         with:
           inputs: requirements.txt
+          # Example (remove if none): ignore a no-fix, not-reachable CVE with a reason.
+          # ignore-vulns: |
+          #   PYSEC-XXXX-XXX   # why it's safe to ignore (no fix / not reachable / dev-only)
 
   frontend:
     name: Frontend — build + lint
