@@ -112,6 +112,28 @@ class GroundedFact(BaseModel):
     confidence: ConfidenceLevel = ConfidenceLevel.MEDIUM
 ```
 
+### `app/validators/injection.py`  [AI apps that ingest UNTRUSTED documents/user content]
+Prompt-injection defence (**OWASP LLM01**). Untrusted vendor/user content can embed
+instructions to manipulate the LLM ("ignore previous instructions and ..."). Scan chunk
+text at the single ingestion choke point — BEFORE any LLM consumes it — and turn a match
+into a guardrail/critic **block**. Fail-CLOSED.
+- Patterns + threshold live in CONFIG (platform.yaml / settings), **never hardcoded**.
+- Scan UNTRUSTED inputs only; exempt trusted first-party docs (pass `trusted_source=True`).
+- Findings are a typed model (e.g. `InjectionFinding`) on the ingestion output — never raw text.
+```python
+import re
+
+def scan_text(text: str, patterns) -> list[tuple[str, str]]:
+    """Return (pattern_name, matched_snippet) for each config pattern that fires.
+    `patterns` come from config (each has .name and .regex) — nothing hardcoded here."""
+    hits = []
+    for pat in patterns:
+        m = re.compile(pat.regex).search(text or "")
+        if m:
+            hits.append((pat.name, m.group(0)[:160].strip()))
+    return hits
+```
+
 ### `app/prompts/__init__.py`
 Empty file.
 

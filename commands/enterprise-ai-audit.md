@@ -42,6 +42,7 @@ Run these checks using Glob and Grep. Do all checks in parallel for speed.
 - Are there hardcoded secrets? (grep for `password =` or `secret =` or `api_key =` as string literals in Python files — exclude .env and test files)
 - Is CORS locked? (grep for `allow_origins` — `["*"]` is a gap)
 - Are SQL queries parameterized? (grep for `f"SELECT` or `f"INSERT` — f-string SQL is a gap)
+- **For AI products ingesting untrusted documents/user content: is there a prompt-injection scan before content reaches the LLM?** (grep `app/validators/` or the critic/guardrail layer for injection-pattern scanning; check the ingestion path scans untrusted chunks but exempts trusted first-party inputs) — absence is a gap (**OWASP LLM01**, the #1 AI-specific risk). The scan must be config-driven (patterns in config, not hardcoded) and fail-CLOSED (a match blocks the pipeline, never silently drops).
 
 ### Category 4: Testing
 - Do unit tests exist? (glob for `tests/unit/**/*.py` or `test_*.py`)
