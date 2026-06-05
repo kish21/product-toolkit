@@ -1405,6 +1405,17 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    # Group tightly-coupled packages so they bump together in ONE PR. Bumping them
+    # independently drifts their versions apart and breaks the build:
+    #   - react / react-dom must share a version (Next refuses a mismatch)
+    #   - eslint must move with eslint-config-next (peer-dep compatibility)
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      eslint:
+        patterns: ["eslint", "eslint-config-next", "@eslint/*"]
+      next:
+        patterns: ["next", "@next/*"]
     labels: ["dependencies", "frontend"]
   - package-ecosystem: "github-actions"
     directory: "/"
