@@ -396,3 +396,8 @@ correct CREATE TABLE/INDEX SQL, columns match models exactly, tests pass.
 alembic SQL), (3) frontend-only Next.js standalone at repo root (type-check/build/lint/drift ✅),
 (4) frontend-only React+Vite (build/lint/type-check ✅). Still untested: Internal-tool behavioral
 branch, live question-flow orchestration, docker-compose boot — cover via a real /new-project run.
+2026-06-05 dependabot grouping: the scaffold's `dependabot.yml` npm block now ships `groups:`
+(react, eslint, next). Lesson from a real project: dependabot bumps coupled packages
+INDEPENDENTLY, drifting their versions apart and breaking the build — react-dom bumped without
+react (Next rejects the mismatch), and eslint bumped without eslint-config-next (peer-dep
+failure). Grouping makes the bot open one coherent PR per ecosystem. In references/backend-fastapi.md.
