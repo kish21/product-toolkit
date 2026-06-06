@@ -45,6 +45,19 @@ git clone https://github.com/kish21/product-toolkit ~/product-toolkit
 cd ~/product-toolkit && ./install.sh
 ```
 
+### Editing & syncing (read before changing a skill)
+
+This repo is the **source of truth**. Sync is **one-way: repo → installed** (`install.sh` copies
+`commands/` into `~/.claude/commands/`). So:
+
+- **Edit the file under `commands/` here**, then run `./install.sh` to propagate. Never edit
+  `~/.claude/commands/` directly (it is overwritten on the next install) and **never copy
+  installed → repo** — the two can drift, and a backwards copy will clobber the canonical source.
+- **Use a surgical editor, not a whole-file `cp`.** A blind copy silently destroys content; an
+  in-place edit fails loudly if it can't find its anchor.
+- **`git diff --stat` before you commit.** A one-line change should show ~`+1`; a large deletion
+  count means you copied the wrong thing — stop and inspect.
+
 ---
 
 ## The flagship: `/new-project`
