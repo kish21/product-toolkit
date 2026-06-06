@@ -66,6 +66,11 @@ EOF
 
 **PR title format:** `feat: add vendor upload form (#48)` — type prefix, what it does, issue number in brackets.
 
+> **The `Closes #N` in the BODY is what auto-closes the issue on merge — the `(#48)` in the
+> title does not.** If this subtask maps to a tracked issue, always include the body keyword
+> (find the number first: `gh issue list --search "<title/keyword>"`; beware stale duplicate
+> issues — pick the one the live roadmap references). Verified in Step 7.
+
 ---
 
 ## Step 4 — Handle CI failures
@@ -125,6 +130,38 @@ git pull origin master
 
 ---
 
+## Step 7 — Verify the issue closed AND the project board moved (don't skip)
+
+Merging a PR **does NOT close the linked issue** unless the PR *body* contained a closing
+keyword (`Closes #N` / `Fixes #N` — the title alone does nothing). And even when the issue
+closes, a **GitHub Projects board** card only moves if the project's built-in
+"auto-archive / set-Done-on-close" workflow is enabled. Both are silent when missing — the
+work looks shipped while the tracker still says open. So after every merge:
+
+```bash
+# 1. The linked issue should now be CLOSED
+gh issue view <N> --json state -q .state          # expect: CLOSED
+# If still OPEN (PR forgot the keyword), close it manually with a trace to the merge:
+gh issue close <N> --comment "Shipped in #<PR> (squash-merged as <sha>). <one line of what landed>."
+
+# 2. If the repo uses a project board, the card should be in Done
+gh project list --owner <owner>                    # find the board number
+gh project item-list <num> --owner <owner> --format json \
+  | python -c "import sys,json;[print(i['content'].get('number'),i.get('status')) for i in json.load(sys.stdin)['items'] if i['content'].get('number')==<N>]"
+# If the card didn't move, set it (find the Status field/option ids via `gh project field-list`):
+# gh project item-edit --id <item-id> --field-id <status-field> --project-id <pid> --single-select-option-id <done-id>
+```
+
+**Reconciliation sweep (cheap, catches drift):** list the board and flag any card whose
+column disagrees with its issue's open/closed state — a closed issue still in *Todo/In-Progress*,
+or an open issue parked in *Done*. Do this whenever you "finish" a ticket, not just at merge.
+
+> A build-state / handoff note that says "✅ shipped" is **not** evidence the issue is
+> closed or the card moved — verify the tracker itself. (This exact gap left two shipped
+> features' issues open until a reconciliation pass caught them.)
+
+---
+
 ## Branch protection setup (one-time per repo)
 
 Set up via GitHub UI: **Settings → Branches → Add ruleset**
@@ -151,6 +188,8 @@ Required settings:
 | `error: failed to push some refs` after rebase | Diverged history | `git push --force-with-lease` |
 | Merge conflict on same file from two PRs | Concurrent PRs | Merge in order: rebase later PR on top of merged one |
 | PR created but has uncommitted local changes | Forgot to stage/commit | `git add . && git commit -m "..."` then `git push` |
+| Issue still OPEN after its PR merged | PR body lacked `Closes #N` (title ref doesn't count) | `gh issue close <N> --comment "Shipped in #<PR> (<sha>)"`; add the keyword next time |
+| Project-board card stuck in Todo/In-Progress after merge | No auto-Done workflow on the board, or issue never closed | Close the issue (auto-Done fires) or move the card manually via `gh project item-edit` |
 
 ---
 
