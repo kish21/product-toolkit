@@ -227,6 +227,89 @@ async def me(payload: dict = Depends(get_current_user)):
 
 ---
 
+### API documentation hygiene (OpenAPI / Swagger)
+
+FastAPI auto-generates `/docs`, `/redoc` and `/openapi.json` from the route
+decorators — but the default is thin (operation names derived from function
+names, empty response schemas, no error docs). For a customer-facing API, treat
+the docs as a first-class deliverable from day one. It's all **declarative
+metadata** — zero runtime cost.
+
+**1. App-level metadata is config-driven, never hardcoded.** Put the
+description / contact / license / per-tag descriptions in your config layer
+(yaml/env), defaulted so older config still loads, and read it in `main.py`:
+
+```python
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    lifespan=lifespan,
+    description=settings.api_docs.description,          # from config
+    contact={"name": ..., "email": ..., "url": ...},     # from config
+    license_info={"name": ..., "url": ...},              # from config
+    openapi_tags=[{"name": t.name, "description": t.description}
+                  for t in settings.api_docs.tags],      # one line per router tag
+)
+```
+
+**2. Share error-response specs — don't repeat `responses=` dicts on every
+route.** Make one `app/api/openapi_responses.py` documenting your error
+envelope once, then compose:
+
+```python
+def _err(description, example_detail):
+    return {"description": description,
+            "content": {"application/json": {"example": {"detail": example_detail}}}}
+
+UNAUTHORIZED = {401: _err("Missing/invalid auth token.", "Not authenticated")}
+FORBIDDEN    = {403: _err("Caller lacks the required role.", "Insufficient permissions")}
+NOT_FOUND    = {404: _err("Resource not found / not visible to this org.", "Not found")}
+CONFLICT     = {409: _err("Conflicts with current state.", "Conflict")}
+
+def responses(*specs):           # responses=responses(UNAUTHORIZED, NOT_FOUND)
+    out = {}
+    for s in specs: out.update(s)
+    return out
+```
+
+Annotate each route with a `summary`, a docstring/`description`, and only the
+error codes it can ACTUALLY raise (read each `Depends`/`HTTPException` first — a
+401 on a public route is a lie in the docs).
+
+**3. The one footgun — `response_model` filters the body.** Adding
+`response_model=X` to a route that returns a raw dict makes FastAPI silently
+drop any key not on `X` and coerce types — that's a **behaviour change**, not an
+annotation. Only set `response_model` where the handler already returns exactly
+that model; otherwise document the shape via a `responses` example.
+
+**4. Gate it in CI with a meta-test** so new routes can't regress the docs.
+Iterate `app.openapi()` + the route table:
+
+```python
+def test_every_operation_has_summary_and_description():
+    missing = [f"{m.upper()} {p}" for p, methods in app.openapi()["paths"].items()
+               for m, op in methods.items()
+               if m in {"get","post","put","patch","delete"}
+               and (not op.get("summary") or not op.get("description"))]
+    assert not missing, f"Routes missing docs: {missing}"
+
+def test_response_model_set_is_unchanged():
+    # Pin the set of routes bound to a response_model (explicit OR via a `-> Model`
+    # return annotation). A change here means someone risked filtering a body —
+    # prove the body is byte-unchanged with a snapshot, then update the baseline.
+    from fastapi.routing import APIRoute
+    actual = {(m.lower(), r.path) for r in app.routes if isinstance(r, APIRoute)
+              and r.response_model is not None for m in r.methods}
+    assert actual == RESPONSE_MODEL_BASELINE
+```
+
+Auth-route detection for a "must document 401" gate: walk each route's
+`route.dependant` tree for your `get_current_user` callable rather than guessing
+from the path. Don't auto-require 403 — most role checks live in the handler
+body and aren't detectable from the route table; annotate those by hand.
+
+---
+
 ### `app/auth/__init__.py`
 Empty file.
 
