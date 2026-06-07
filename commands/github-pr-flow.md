@@ -162,6 +162,56 @@ or an open issue parked in *Done*. Do this whenever you "finish" a ticket, not j
 
 ---
 
+## Handling Dependabot PRs (triage, don't bulk-merge)
+
+Dependabot opens one PR per dependency (or per group). **Never** bulk-merge them blind, and
+**never** force a red one through — a failing dep PR is telling you the bump is incompatible.
+Triage first:
+
+```bash
+gh pr list --state open                         # find the dependabot PRs
+for pr in <nums>; do
+  echo "=== #$pr ==="; gh pr checks $pr | head; echo
+done
+```
+
+Split into two piles:
+
+- **Green (all checks pass)** → low-risk, merge directly: `gh pr merge <pr> --squash --delete-branch`.
+- **Red (any check fails)** → read the *actual* failing log before deciding — the failure mode dictates the fix:
+
+```bash
+gh pr checks <pr>                               # find the failing job's run/job id
+gh run view --job <job-id> --log-failed | grep -iE "error|conflict|cannot|Traceback|exit code" | head -40
+```
+
+Common red patterns and the fix:
+
+| Failure in the log | What it means | Fix |
+|---|---|---|
+| `ResolutionImpossible` / `X depends on Y<Z` | The bump conflicts with another pin (e.g. langchain caps langgraph) | Bump **both together** in one coordinated PR; let `pip`/`npm` re-resolve, run `pip check` |
+| `AttributeError` / `no attribute` / removed API after install | A *different* dep can't handle the new version (e.g. passlib reads bcrypt's removed `__about__`) | The blocker is the consumer, not the bump — upgrade/replace it (passlib→native bcrypt). Often the dead dep should be dropped, not pinned-back |
+| Grouped bump where one member breaks (e.g. eslint 9→10 with a config bump) | One sub-bump is hostile (removed API), the rest are fine | Take only the safe member, pin the hostile one back; verify locally |
+
+**Supersede pattern** — when a dependabot PR can't merge as-is, do the real fix on **your own
+branch** and close theirs in favour of it (a dependabot branch isn't yours to hand-edit, and
+`Closes #N` doesn't auto-close *PRs*, only issues):
+
+```bash
+git checkout master && git checkout -b deps/<coordinated-fix>
+# edit manifests, regenerate lockfile, run the suite + (for engine/pipeline bumps) the benchmark
+gh pr create --title "chore(deps): <coordinated bump> (fixes #<dependabot-pr>)" \
+  --body "Supersedes #<dependabot-pr>. <root cause + what verified>"
+# after your PR merges:
+gh pr close <dependabot-pr> --delete-branch --comment "Superseded by #<your-pr>: <one-line why>"
+```
+
+Always record the *why* in the manifest comment (e.g. `# pinned at ^9 — eslint 10 removed
+context.getFilename(), breaks eslint-plugin-react`) so the next dependabot bump doesn't silently
+reopen the same break.
+
+---
+
 ## Branch protection setup (one-time per repo)
 
 Set up via GitHub UI: **Settings → Branches → Add ruleset**
@@ -188,6 +238,8 @@ Required settings:
 | `error: failed to push some refs` after rebase | Diverged history | `git push --force-with-lease` |
 | Merge conflict on same file from two PRs | Concurrent PRs | Merge in order: rebase later PR on top of merged one |
 | PR created but has uncommitted local changes | Forgot to stage/commit | `git add . && git commit -m "..."` then `git push` |
+| Dependabot PR red with `ResolutionImpossible` | Bump conflicts with another pin | Bump both deps together in one superseding PR (see Dependabot section) |
+| Dependabot PR red with `AttributeError`/removed-API after install | A *consumer* dep can't handle the new version | Upgrade/replace the consumer (often drop a dead dep), don't pin the bump back |
 | Issue still OPEN after its PR merged | PR body lacked `Closes #N` (title ref doesn't count) | `gh issue close <N> --comment "Shipped in #<PR> (<sha>)"`; add the keyword next time |
 | Project-board card stuck in Todo/In-Progress after merge | No auto-Done workflow on the board, or issue never closed | Close the issue (auto-Done fires) or move the card manually via `gh project item-edit` |
 
