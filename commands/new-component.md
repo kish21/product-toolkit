@@ -2,6 +2,7 @@
 name: new-component
 description: Create a new React frontend component. Use when building any UI component — buttons, cards, forms, modals, tables, or page sections. Enforces CSS variable rules, interactive states, and typography constraints to keep components consistent with the design system.
 ---
+<!-- Source of truth: product-playbook/commands/new-component.md — synced one-way (playbook → toolkit). Do not edit here. -->
 
 # New Frontend Component
 
