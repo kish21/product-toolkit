@@ -58,6 +58,12 @@ This repo is the **source of truth**. Sync is **one-way: repo → installed** (`
 - **`git diff --stat` before you commit.** A one-line change should show ~`+1`; a large deletion
   count means you copied the wrong thing — stop and inspect.
 
+> **Single-master rule for the UI suite.** The UI suite — `/design-system`, `/new-component`, and the
+> future `/frontend-audit` — is **mastered in [`product-playbook`](https://github.com/kish21/product-playbook)**
+> (they're coupled through `DESIGN.md`, so one master = one place to fix bugs). The `/new-component.md`
+> here is a **one-way synced, read-only copy** (playbook → toolkit) so existing toolkit users keep
+> working — **do not edit it here**; change it in product-playbook and re-sync.
+
 ---
 
 ## The flagship: `/new-project`
