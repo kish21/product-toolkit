@@ -277,9 +277,13 @@ git checkout master && git pull origin master
 
 - **No Co-Authored-By trailers** in commit messages — causes confusion in git history
 - Commit messages follow conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`
-- **Multiline commit messages on Windows PowerShell 5.1: use `git commit -F <msgfile>`, never `-m` with a
-  here-string.** Embedded double quotes inside a `@'…'@` here-string get stripped/split when passed to a
-  native exe, so git receives the message chopped into bogus pathspecs (`error: pathspec '…' did not match`).
-  Write the message to a temp file (e.g. `.git\COMMIT_MSG.txt`), `git commit -F` it, then delete the file.
+- **ANY multiline text argument to a native exe on Windows PowerShell 5.1 goes through a FILE, never an
+  inline here-string.** Embedded double quotes inside a `@'…'@` here-string get stripped/split when passed
+  to a native exe, so the text arrives chopped into bogus extra arguments. Seen in the field on **both**
+  `git commit -m` (→ `error: pathspec '…' did not match`) **and** `gh pr create --body` (→ `unknown
+  arguments […]; please quote all values that have spaces`). The fix is the same family of flags:
+  `git commit -F <msgfile>` · `gh pr create --body-file <file>` · `gh pr comment --body-file` ·
+  `gh issue create --body-file` · `gh release create --notes-file`. Write the text to a temp file,
+  pass the file flag, delete the file after.
 - One PR per logical change — do not bundle unrelated fixes
 - Always note temporarily disabled code (e.g. auth guards, feature flags) in the PR test plan
