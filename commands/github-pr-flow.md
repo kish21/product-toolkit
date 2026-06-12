@@ -277,5 +277,9 @@ git checkout master && git pull origin master
 
 - **No Co-Authored-By trailers** in commit messages — causes confusion in git history
 - Commit messages follow conventional commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`
+- **Multiline commit messages on Windows PowerShell 5.1: use `git commit -F <msgfile>`, never `-m` with a
+  here-string.** Embedded double quotes inside a `@'…'@` here-string get stripped/split when passed to a
+  native exe, so git receives the message chopped into bogus pathspecs (`error: pathspec '…' did not match`).
+  Write the message to a temp file (e.g. `.git\COMMIT_MSG.txt`), `git commit -F` it, then delete the file.
 - One PR per logical change — do not bundle unrelated fixes
 - Always note temporarily disabled code (e.g. auth guards, feature flags) in the PR test plan
