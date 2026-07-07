@@ -242,6 +242,8 @@ Required settings:
 | Dependabot PR red with `AttributeError`/removed-API after install | A *consumer* dep can't handle the new version | Upgrade/replace the consumer (often drop a dead dep), don't pin the bump back |
 | Issue still OPEN after its PR merged | PR body lacked `Closes #N` (title ref doesn't count) | `gh issue close <N> --comment "Shipped in #<PR> (<sha>)"`; add the keyword next time |
 | Project-board card stuck in Todo/In-Progress after merge | No auto-Done workflow on the board, or issue never closed | Close the issue (auto-Done fires) or move the card manually via `gh project item-edit` |
+| `gh pr checks --watch` exits non-zero but every required check passed | A path-filtered/skipped job reports an empty conclusion, which `--watch` treats as failure | Never trust the exit code alone — confirm with `gh pr view <N> --json statusCheckRollup` and read each check's `conclusion` (SUCCESS/empty=skipped) before declaring CI red |
+| Feature commit accidentally includes unrelated untracked files | `git add -A` / `git add .` sweeps in whatever else is sitting in the working tree (someone else's docs, scratch files) | Stage explicit paths for feature commits; if already committed, `git rm --cached <files> && git commit` removes them from the branch while keeping them on disk |
 
 ---
 
