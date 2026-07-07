@@ -526,7 +526,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 22 = active LTS; match local dev — supabase-js & modern SDKs need native WebSocket (Node 22+)
+          node-version: "22"
       # npm install (not ci) — no package-lock.json until first commit; switch to npm ci after.
       - run: npm install
       - run: npm run type-check
