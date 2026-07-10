@@ -287,5 +287,15 @@ git checkout master && git pull origin master
   `git commit -F <msgfile>` · `gh pr create --body-file <file>` · `gh pr comment --body-file` ·
   `gh issue create --body-file` · `gh release create --notes-file`. Write the text to a temp file,
   pass the file flag, delete the file after.
+- **Never round-trip a UTF-8 source file through PowerShell 5.1 `Get-Content`/`Set-Content`**
+  (e.g. for a bulk regex replace before committing). PS5.1 reads with the ANSI codepage by default,
+  so em-dashes and other multibyte chars come back as mojibake (`â€”`) and the mangled file gets
+  committed. Seen in the field: a test file corrupted by a one-liner replace; the fix was
+  `git checkout -- <file>` and redoing the change with a real editor/Edit tool. If PowerShell must
+  write a file, pass `-Encoding utf8` on BOTH read and write — but prefer proper edit tooling.
+- **`npm run <script> -- --flag value` argument passthrough is unreliable on Windows PowerShell 5.1**
+  — flags can arrive as bare positionals (seen in the field: `npm run dev -- --port 5173` started
+  Vite with root dir "5173" → every route 404). When a background dev server must get flags, invoke
+  the underlying binary directly: `npx vite --port 5173 --strictPort`.
 - One PR per logical change — do not bundle unrelated fixes
 - Always note temporarily disabled code (e.g. auth guards, feature flags) in the PR test plan
