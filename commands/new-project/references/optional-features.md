@@ -297,13 +297,43 @@ Deploy: modal deploy deploy/modal.py
 import modal
 
 app = modal.App("app-name")
-image = modal.Image.debian_slim().pip_install_from_requirements("requirements.txt")
+image = (
+    modal.Image.debian_slim()
+    .pip_install_from_requirements("requirements.txt")
+    # Modal >=1.0 does NOT auto-mount local source — bundle it explicitly or containers
+    # die with ModuleNotFoundError at runtime (deploy itself succeeds!). add_local_dir
+    # (not add_local_python_source) when the package carries non-.py data (yaml configs).
+    .add_local_dir("app", remote_path="/root/app", ignore=["**/__pycache__"])
+)
 
 @app.function(image=image, schedule=modal.Cron("0 2 * * *"))
 def daily_cleanup():
     from app.jobs.cleanup import cleanup_old_records
     cleanup_old_records()
 ```
+
+**Modal deploy gotchas (learned the hard way, MarkVid 2026-07):**
+- `@modal.fastapi_endpoint` no longer auto-injects FastAPI — put `fastapi[standard]` in
+  requirements.txt or every web endpoint 404s after a "successful" deploy.
+- If the app mixes CPU web endpoints + a GPU function in one module: define the GPU function
+  BEFORE any fastapi import. Modal imports the whole module in EVERY container; if the
+  fastapi import fails in the slim GPU image, the GPU function is silently never registered
+  ("module has no attribute X").
+- **Windows CLI:** Modal's gRPC needs the OS cert store — run via a shim that calls
+  `truststore.inject_into_ssl()` first; and set `PYTHONUTF8=1` or build logs crash the CLI
+  with a 'charmap' codec error. Invoke as `python -m modal ...` (PS5.1 can't exec `.venv\Scripts\modal`).
+- **Scripts passed to `modal run`/inline apps re-import ON the container** — guard local-only
+  imports (truststore, dev tooling) in try/except ImportError.
+- **HF-gated models** (FLUX, Llama, …): the license must be accepted on the SAME account as
+  the token in your Modal secret (check with whoami — 401 = no token sent, 403 = wrong
+  account/not accepted). Pass `token=` to `from_pretrained`.
+- **FLUX-class 12B models on 24GB GPUs (A10G/4090):** bf16 OOMs even with
+  `enable_model_cpu_offload()` (the transformer alone ≈22GB must fit on-GPU). Use
+  bitsandbytes NF4 on transformer + text_encoder_2 (prebuilt kernels, no CUDA toolkit
+  needed) — fits ~14GB at full speed. optimum-quanto qfloat8 needs a nvidia/cuda-devel base
+  image (JIT-compiles). Cache weights in a `modal.Volume` mounted at `HF_HOME`.
+- Cost guardrails: explicit `timeout=` on EVERY function (GPU ones sized for cold start +
+  one unit of work); never `keep_warm`/`min_containers` without a cost review.
 
 ---
 
