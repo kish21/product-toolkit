@@ -83,6 +83,13 @@ For each file the diff added or substantially changed:
   - Hardcoded passwords / API keys / tokens
   - Missing `org_id` filter on any DB query in a multi-tenant codebase
   - Missing auth dependency on a new API endpoint
+  - `except ValueError` mapped to a user-facing "your input is invalid" response in an
+    API handler: pydantic `ValidationError` **subclasses ValueError**, so server-side
+    model/config failures leak internal error text to the client, mislabelled as the
+    user's mistake and never logged as an outage. Fix: define a dedicated typed error
+    class for the user-actionable case(s) and catch ONLY it; let everything else fall
+    through to the logged generic 5xx path. (Same trap: `binascii.Error` from base64,
+    `int()` on config values — all ValueError.)
 - **Configuration**: hardcoded URLs / thresholds / timeouts (should live in config)
 
 Report each finding with file:line + the smell + the standard fix.
