@@ -128,6 +128,26 @@ git checkout master
 git pull origin master
 ```
 
+**⚠️ Stacked PRs (PR B based on PR A's branch): retarget the child BEFORE merging the parent.**
+`gh pr merge A --squash --delete-branch` deletes A's branch, and GitHub then **auto-CLOSES PR B**
+— a closed PR with a deleted base can be neither retargeted nor reopened. Correct order:
+
+```bash
+gh pr edit B --base master        # retarget the child FIRST
+gh pr merge A --squash --delete-branch
+gh pr merge B --squash --delete-branch
+```
+
+Recovery if B already got auto-closed: replay ONLY B's own commits onto the new master and
+open a fresh PR. A plain `git rebase master` usually CONFLICTS (it replays A's pre-review-fix
+commits against A's squashed final state) — use `--onto` from A's old tip instead:
+
+```bash
+git rebase --onto origin/master <A-branch-tip-sha> <B-branch>
+git push --force-with-lease origin <B-branch>
+gh pr create --base master ...    # fresh PR replaces the dead one
+```
+
 ---
 
 ## Step 7 — Verify the issue closed AND the project board moved (don't skip)
