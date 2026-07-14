@@ -91,6 +91,32 @@ For each file the diff added or substantially changed:
     through to the logged generic 5xx path. (Same trap: `binascii.Error` from base64,
     `int()` on config values — all ValueError.)
 - **Configuration**: hardcoded URLs / thresholds / timeouts (should live in config)
+- **DEAD CONFIG (the inverse smell, and the sneakier one)**: a knob **declared** in
+  config/yaml and **read by nobody** — the behaviour it names is hardcoded somewhere
+  else. It reads as configurable, does nothing when flipped, and the owner reasonably
+  concludes the setting is honoured. Grep every new config key for a consumer; if the
+  consumer is a frontend with no config access, the **server must serve the value**
+  (e.g. in a response `meta`) rather than the page re-hardcoding it. Pin with a test
+  that asserts the value actually reaches the behaviour.
+- **Correctness smells (each of these ships a bug that still LOOKS correct):**
+  - **An auto-fix that isn't re-validated against the checks it fixes.** "Fix it for
+    me" / auto-remediation that emits output the validator then rejects → it reports
+    *"Fixed!"* and the user re-checks into the same failure. Assert end-to-end: apply
+    the fix → re-run the checks → zero findings. Where no fix is possible it must
+    **refuse honestly**, not half-fix.
+  - **A cache key built by INCLUSION (a hand-picked field allowlist).** The next field
+    someone adds to the model is silently unhashed → a stale result is served on
+    changed input. Build the key by **exclusion**: hash the whole object minus known-
+    volatile fields (signed URLs, timestamps), and include the **thresholds** and the
+    **validator/check version** so a config change or a new check invalidates it.
+  - **A validator/gate that fails OPEN.** A check that throws and falls through, or a
+    checker that silently no-ops when its endpoint/flag is unconfigured. Fail-soft is
+    correct on a generation path and **catastrophic** on a gate — it waves everything
+    through while still looking like a gate.
+  - **A fabricated metric.** A score/percentage/grade shown in the UI that nothing
+    actually measured (a text model "rating" images it never saw; a hardcoded demo
+    number left in a real page). Emit **no number** and say why. Grep new UI for
+    literal scores.
 
 Report each finding with file:line + the smell + the standard fix.
 
