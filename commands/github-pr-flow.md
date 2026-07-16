@@ -70,6 +70,13 @@ EOF
 > title does not.** If this subtask maps to a tracked issue, always include the body keyword
 > (find the number first: `gh issue list --search "<title/keyword>"`; beware stale duplicate
 > issues — pick the one the live roadmap references). Verified in Step 7.
+>
+> **Verify the number against the LIVE tracker (`gh issue view <N>`) before writing `Refs #N` /
+> `Closes #N` into a COMMIT message** — never trust an issue number carried by an old doc, a
+> memory note, or a subagent report (they drift; issues get closed/repurposed). A wrong ref in a
+> PR body is a one-command fix (`gh pr edit`), but a wrong ref in a *pushed commit* is effectively
+> permanent and cross-links noise onto an unrelated issue. When it happens, correct the record in
+> the PR body ("commit says #6 — stale ref, tracker is #156") rather than force-pushing history.
 
 ---
 
