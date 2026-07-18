@@ -177,8 +177,44 @@ Block list (any hit = warn the user before pushing):
 - Build artifacts (`dist/`, `build/`, `__pycache__/`, `node_modules/`) accidentally staged
 - `requirements.txt` / `package.json` / `pyproject.toml` parse-fails (run `pip check` / `npm install --dry-run` / equivalent)
 - All new tests pass; the project's full test suite is green
+- **Diff scope matches the change** (see below)
 
 Report each as a blocker (do-not-push), warning (review-before-push), or pass.
+
+#### Diff-scope check — did a formatter/codemod touch files you never meant to?
+
+```bash
+git diff --stat HEAD | tail -1          # or: git diff --stat main...HEAD
+```
+
+Compare the file count to the number you *intended* to change. If the diff is
+much wider than the work, something ran repo-wide. The usual culprits:
+`ruff format .`, `black .`, `prettier --write .`, `eslint --fix`, `gofmt -w .`,
+an IDE "format on save" sweep, or a codemod.
+
+**Why this is a blocker, not a nit.** A 15-file change that arrives as a
+120-file diff is unreviewable — the reviewer cannot separate your logic from
+whitespace, `git blame` is polluted across the codebase, and every concurrent
+branch gets conflicts. Reviewers respond by skimming, which is exactly when
+real bugs ship.
+
+**Do not assume the repo is formatter-clean.** Many mature repos deliberately
+keep hand-tuned formatting (aligned comment columns, compact multi-arg calls)
+that a formatter will "fix". Running the formatter repo-wide *creates* the
+drift you then have to back out.
+
+Fix, in order of preference:
+1. Scope the tool to your files: `ruff format path/to/file.py`, not `ruff format .`
+2. Already ran it wide? Revert everything you did not intend to touch:
+   ```bash
+   for f in $(git diff --name-only); do
+     grep -qx "$f" intended-files.txt || git checkout -- "$f"
+   done
+   ```
+   Then re-apply your edits to any of *your* files that got reformatted, keeping
+   the file's existing style.
+3. If the repo genuinely should be formatted repo-wide, that is **its own PR**
+   with no logic in it — never a passenger on a feature change.
 
 ### Category 8 — Deferred work tracking
 

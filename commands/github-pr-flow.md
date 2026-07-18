@@ -40,6 +40,20 @@ git checkout -b feat/<short-description>
 
 ## Step 3 — Push and open PR
 
+**Before pushing, check the diff SCOPE — not just the content:**
+
+```bash
+git diff --stat main...HEAD | tail -1
+```
+
+If the file count is far larger than the work you actually did, a formatter or
+codemod ran repo-wide (`ruff format .`, `prettier --write .`, `eslint --fix`,
+an IDE format-on-save sweep). Back the unrelated files out before pushing — a
+15-file change that lands as a 120-file diff is unreviewable, pollutes
+`git blame`, and conflicts with every open branch. Repo-wide formatting is its
+own logic-free PR, never a passenger on a feature change. Full procedure:
+`phase-done` Category 7.
+
 ```bash
 git push -u origin feat/<short-description>
 ```
