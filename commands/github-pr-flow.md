@@ -278,7 +278,7 @@ Required settings:
 | CI not re-triggering after push | GitHub timing issue | Empty commit: `git commit --allow-empty -m "ci: trigger re-run"` |
 | `error: failed to push some refs` after rebase | Diverged history | `git push --force-with-lease` |
 | Merge conflict on same file from two PRs | Concurrent PRs | Merge in order: rebase later PR on top of merged one |
-| PR created but has uncommitted local changes | Forgot to stage/commit | `git add . && git commit -m "..."` then `git push` |
+| PR created but has uncommitted local changes | Forgot to stage/commit | `git add <paths> && git commit -m "..."` then `git push` — stage EXPLICIT paths, never `git add .`, or you sweep in whatever else is in the tree (see the row below) |
 | Dependabot PR red with `ResolutionImpossible` | Bump conflicts with another pin | Bump both deps together in one superseding PR (see Dependabot section) |
 | Dependabot PR red with `AttributeError`/removed-API after install | A *consumer* dep can't handle the new version | Upgrade/replace the consumer (often drop a dead dep), don't pin the bump back |
 | Issue still OPEN after its PR merged | PR body lacked `Closes #N` (title ref doesn't count) | `gh issue close <N> --comment "Shipped in #<PR> (<sha>)"`; add the keyword next time |
