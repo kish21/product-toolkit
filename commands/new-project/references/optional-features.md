@@ -312,7 +312,7 @@ def daily_cleanup():
     cleanup_old_records()
 ```
 
-**Modal deploy gotchas (learned the hard way, MarkVid 2026-07):**
+**Modal deploy gotchas (learned the hard way on a shipped GPU project):**
 - `@modal.fastapi_endpoint` no longer auto-injects FastAPI — put `fastapi[standard]` in
   requirements.txt or every web endpoint 404s after a "successful" deploy.
 - If the app mixes CPU web endpoints + a GPU function in one module: define the GPU function
