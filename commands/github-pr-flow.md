@@ -109,6 +109,19 @@ git commit --allow-empty -m "ci: trigger re-run"
 git push
 ```
 
+**If the failure is UNRELATED to your diff — a dependency-audit gate tripped by a NEW upstream
+advisory** (`npm audit` / `pip-audit` fails on a CVE published after your last merge, so EVERY
+PR is red):
+1. **Verify honestly whether the advisory applies** to how the project uses the package (the
+   vulnerable code path may never be exercised) — but prefer the upgrade over an audit exception
+   either way; record the applicability note in the fix PR body.
+2. **Fix it as its OWN dependency PR off the default branch, merged FIRST** — never fold an
+   unrelated dependency upgrade into the feature PR (it muddies review and revert). Watch for
+   package renames/consolidations: the patched release may live under a different package name
+   than the one you have installed, making the audit unfixable in place.
+3. **Then update the feature branch from the default branch** and let CI re-run; re-verify the
+   feature branch locally after the merge (typecheck + tests) before merging it.
+
 ---
 
 ## Step 5 — Resolve merge conflicts
