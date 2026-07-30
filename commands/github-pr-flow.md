@@ -85,6 +85,16 @@ EOF
 > (find the number first: `gh issue list --search "<title/keyword>"`; beware stale duplicate
 > issues — pick the one the live roadmap references). Verified in Step 7.
 >
+> **⚠️ A closing keyword cannot be QUALIFIED — GitHub ignores your caveat and closes the issue.**
+> Shipping one piece of a multi-part issue and writing
+> `Closes #12 **piece 1 only** — the issue stays OPEN for pieces 2 and 3`
+> closes #12 on merge anyway: the parser reads `Closes #12` and stops. The trailing words are for
+> humans only, and the next session inherits a closed issue whose work is half-done — easy to miss,
+> because the PR body *says* it stays open. **For partial work, never use a closing keyword: write
+> `Part of #12` / `Refs #12` and close the issue by hand when the last piece lands.** Same for
+> `Fixes`/`Resolves`. Cheap to verify: after merging, `gh issue view <N> --json state` — reopen with
+> a comment saying why if it closed by mistake.
+>
 > **Verify the number against the LIVE tracker (`gh issue view <N>`) before writing `Refs #N` /
 > `Closes #N` into a COMMIT message** — never trust an issue number carried by an old doc, a
 > memory note, or a subagent report (they drift; issues get closed/repurposed). A wrong ref in a
