@@ -58,6 +58,22 @@ own logic-free PR, never a passenger on a feature change. Full procedure:
 git push -u origin feat/<short-description>
 ```
 
+**RESOLVE the base branch — never assume `main`.** Repos differ (`main` vs `master`), and passing
+the wrong one fails with a message that points nowhere near the real cause:
+
+```
+GraphQL: Head sha can't be blank, Base sha can't be blank,
+No commits between main and <your-branch>, Base ref must be a branch
+```
+
+That reads like an empty-branch or missing-commits problem. It is not — the base branch simply does
+not exist. One command settles it:
+
+```bash
+BASE=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+gh pr create --base "$BASE" --head <your-branch> ...
+```
+
 Then create the PR using the `gh` CLI. Always include a Summary + Test plan:
 
 ```bash
@@ -84,6 +100,16 @@ EOF
 > title does not.** If this subtask maps to a tracked issue, always include the body keyword
 > (find the number first: `gh issue list --search "<title/keyword>"`; beware stale duplicate
 > issues — pick the one the live roadmap references). Verified in Step 7.
+>
+> **⚠️ A closing keyword cannot be QUALIFIED — GitHub ignores your caveat and closes the issue.**
+> Shipping one piece of a multi-part issue and writing
+> `Closes #12 **piece 1 only** — the issue stays OPEN for pieces 2 and 3`
+> closes #12 on merge anyway: the parser reads `Closes #12` and stops. The trailing words are for
+> humans only, and the next session inherits a closed issue whose work is half-done — easy to miss,
+> because the PR body *says* it stays open. **For partial work, never use a closing keyword: write
+> `Part of #12` / `Refs #12` and close the issue by hand when the last piece lands.** Same for
+> `Fixes`/`Resolves`. Cheap to verify: after merging, `gh issue view <N> --json state` — reopen with
+> a comment saying why if it closed by mistake.
 >
 > **Verify the number against the LIVE tracker (`gh issue view <N>`) before writing `Refs #N` /
 > `Closes #N` into a COMMIT message** — never trust an issue number carried by an old doc, a
