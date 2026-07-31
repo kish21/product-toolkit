@@ -58,6 +58,22 @@ own logic-free PR, never a passenger on a feature change. Full procedure:
 git push -u origin feat/<short-description>
 ```
 
+**RESOLVE the base branch — never assume `main`.** Repos differ (`main` vs `master`), and passing
+the wrong one fails with a message that points nowhere near the real cause:
+
+```
+GraphQL: Head sha can't be blank, Base sha can't be blank,
+No commits between main and <your-branch>, Base ref must be a branch
+```
+
+That reads like an empty-branch or missing-commits problem. It is not — the base branch simply does
+not exist. One command settles it:
+
+```bash
+BASE=$(gh repo view --json defaultBranchRef -q .defaultBranchRef.name)
+gh pr create --base "$BASE" --head <your-branch> ...
+```
+
 Then create the PR using the `gh` CLI. Always include a Summary + Test plan:
 
 ```bash
