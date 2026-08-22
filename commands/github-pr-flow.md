@@ -9,6 +9,34 @@ This skill enforces the standard branch-protection workflow used across all proj
 
 ---
 
+## Step 0 — Creating an issue: put it on the board in the same breath
+
+**An issue you create is not filed until its project-board card exists and its columns are set** —
+`gh issue create` does NOT add the issue to a GitHub Projects board, so a ticket created outside the
+board UI is invisible to everyone reading the board.
+
+Immediately after `gh issue create` (including sub-issues filed as follow-ups from another ticket):
+
+```bash
+gh project list --owner <owner>                                  # board number + PVT_ id
+gh project field-list <num> --owner <owner> --format json        # field ids + option ids
+gh project item-add <num> --owner <owner> --url <issue-url> --format json   # -> item id (PVTI_...)
+# then set EVERY single-select the board defines — Status, plus whatever else it uses
+# (owner / lane / priority), not just Status:
+gh project item-edit --id <PVTI_...> --project-id <PVT_...>   --field-id <field-id> --single-select-option-id <option-id>
+```
+
+Set **Status to the column that matches reality**: work starting now -> *In Progress*; queued for a
+named next session -> *In Queue*; otherwise the backlog column (*Todo*). A ticket you are about to
+work should never sit in the backlog column.
+
+Fill the board's other single-selects too — a card with a blank owner/lane column is unassigned work
+in every view that groups by it.
+
+> Verify the same way Step 7 does: re-list the board and confirm the card reads the way you set it.
+
+---
+
 ## Step 1 — Check current state before doing anything
 
 ```bash
