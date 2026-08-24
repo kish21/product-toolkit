@@ -35,6 +35,13 @@ in every view that groups by it.
 
 > Verify the same way Step 7 does: re-list the board and confirm the card reads the way you set it.
 
+**`gh project item-list --format json` returns its field keys LOWERCASE (`owner`, `lane`,
+`status`), so a capitalised jq filter reports every card's fields as empty** — turning that
+read-back into a rubber stamp that always agrees the field is unset. Before believing an absence,
+point the same query at a card you know IS set; if that reads empty too, the query is broken, not
+the board. (This trap produced two confident false claims in one session — "the field is unset" and
+"this board is generally unmaintained" — when 107 of 116 cards were in fact fully stamped.)
+
 ---
 
 ## Step 1 — Check current state before doing anything
